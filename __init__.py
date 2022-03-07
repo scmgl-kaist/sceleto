@@ -39,16 +39,26 @@ from . import genes
 # General single-cell anlaysis procedure
 
 def sc_process(adata,pid = 'fspkuc',n_pcs=50): # simplified scanpy preprocessing
-    '''n: normalise
-       l: log
-       f: filter hvg
-       r: remove cc_genes
-       s: scale
-       p: pca
-       k: knn_neighbors
-       u: umap
-       c: leiden clusering
-       '''
+    """
+    * 03/07/22
+    Performs desired scanpy preprocessing according to the letters passed into the pid parameter
+
+    adata,         REQUIRED | AnnData object.
+    pid,           REQUIRED | A string made out of letters, each corresponding to a scanpy preprocessing function.
+    n_pcs,     NOT REQUIRED | Number of PCs to be used for neighbor search. Default = 50
+
+    Letters for pid and their corresponding function:
+
+    n: normalise
+    l: log
+    f: filter hvg
+    r: remove cc_genes
+    s: scale
+    p: pca
+    k: knn_neighbors
+    u: umap
+    c: leiden clustering
+    """
     if 'n' in pid:
         sc.pp.normalize_per_cell(adata,counts_per_cell_after=10e4)
     if 'l' in pid:
@@ -86,6 +96,25 @@ def read_process(adata,version,
                  max_n_genes = 7000,
                  max_p_mito = 0.5
                 ):
+    """
+    * 03/07/22
+    Used for reading and saving the data with desired cell filtration.
+
+    adata,            REQUIRED | AnnData object.
+    version,          REQUIRED | The version of the h5ad file.
+    species,          REQUIRED | The species which the data belongs to. Default = 'human'
+    sample,           REQUIRED | Name of the sample the cells belong to. Default = None
+    define_var,   NOT REQUIRED | Defines gene names if true and adds it to adata. Default = True
+    call_doublet, NOT REQUIRED | Identifies doublet cells and stores it in adata. Default = True
+    write,        NOT REQUIRED | Saves the file. Default = True
+    min_n_counts      REQUIRED | Minimum number of counts per cell. Default = 1000
+    min_n_genes       REQUIRED | Minimum number of genes per cell. Default = 500
+    max_n_genes       REQUIRED | Maximum number of genes per cell. Defualt = 7000
+    max_p_mito        REQUIRED | Maximum allowed ratio of mithochondrial genes. Default = 0.5
+
+    """
+
+
     if sample:
         adata.obs['Sample'] = sample
     if define_var:
@@ -129,17 +158,48 @@ def read_process(adata,version,
     return adata
 
 def write_notebook(name1,name2):
+    """
+    * 03/07/22
+    Used for reading and saving a jupyter notebook as a new notebook.
+
+    name1,          REQUIRED | Name of the original notebook.
+    name2,          REQUIRED | Name of the new notebook.
+
+    """
     os.system(f'jupyter nbconvert {name1} --to notebook --ClearOutputPreprocessor.enabled=True --output {name2}')
         
 def sort_var_names_based_on_GeneID(adata):
+    """
+    * 03/07/22
+    Sorts adata based on GeneID and returns a copy
+
+    adata,          REQUIRED | AnnData object.
+
+    """
     return adata[:,np.argsort(adata.var.GeneID)].copy()
 
 def combine_batch(adata,key1,key2,new_key = 'batch'):
+    """
+    * 03/07/22
+    Combines two features of the cells into a single feature and stores that as a new feature.
+
+    adata,          REQUIRED | AnnData object.
+    key1,           REQUIRED | 1st desired feature of adata.obs.
+    key2,           REQUIRED | 2nd desired feature of adata.obs.
+    new_key,        REQUIRED | Name of the newly made feature. Default = 'batch'
+    """
     print('storing new batch into '+new_key)
     adata.obs[new_key] = ['{}_{}'.format(k1,k2) for k1,k2 in zip(adata.obs[key1],adata.obs[key2])]
 
 def doublet(adata, key='Sample'):
-    '''detecting doublet using scrublet per key'''
+    """
+    * 03/07/22
+    Detects doublets using scrublet per given key
+
+    adata,          REQUIRED | AnnData object.
+    key,            REQUIRED | The cell feature to use for doublet detecting (e.g data.obs[key]). 
+    """
+    
     doublet = []
     for filename in set(adata.obs[key]):
         print(filename)
