@@ -268,20 +268,45 @@ def get_sketch(adata,key,folds=10,how='pd',min_num_per_key=500,start='filter',ra
     return(sketch_index)
         
 def bbknn_umap(adata,batch_key,n_pcs,cluster=False,n_neighbors=3):
+    """
+    * 03/08/2022
+    Applies bbknn batch correction method and creates a umap.
+
+    adata,                 REQUIRED | AnnData object.
+    batch_key,             REQUIRED | The feature to use for batch correction (e.g adata.obs[key]). 
+    n_pcs,                 REQUIRED | Number of principle components to use in batch correction.
+    cluster,           NOT REQUIRED | Boolean for applying leiden clustering or not. Default = False
+    n_neighbors,           REQUIRED | Number of neighbors to use for batch correction. Default = 3
+    """
     bbknn(adata,batch_key=batch_key,n_pcs=n_pcs,approx=False,neighbors_within_batch=n_neighbors)
     if cluster:
         sc.tl.leiden(adata)
     sc.tl.umap(adata)
     
 def umap(adata,name=None):
+    """
+    * 03/08/2022
+    Creates a umap.
+
+    adata,                 REQUIRED | AnnData object.
+    name,              NOT REQUIRED | For specifying a unique name for the umap. Default = None
+    """
     sc.tl.umap(adata)
     if name:
         adata.obsm['X_umap_'+name] = adata.obsm['X_umap'].copy()
         
-def umap_show(adata,feature,feature_name= None):
-    if feature_name:
-        adata.obs[feature_name] = feature
-        sc.pl.umap(adata,color=feature_name,color_map='OrRd')
+def umap_show(adata, feature, name=None):
+    """
+    * 03/08/2022
+    Shows the umap.
+
+    adata,                 REQUIRED | AnnData object.
+    feature,               REQUIRED | Feature of the cells that will be used for coloring the umap. Example = adata.obs['leiden']
+    name,              NOT REQUIRED | If given a name, save the feature with the given name to adata.obs. Default = None
+    """
+    if name:
+        adata.obs[name] = feature
+        sc.pl.umap(adata,color=name,color_map='OrRd')
     else:
         adata.obs['show'] = feature
         sc.pl.umap(adata,color='show',color_map='OrRd')
