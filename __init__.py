@@ -213,9 +213,26 @@ def doublet(adata, key='Sample'):
     adata.obs['doublet_predict'] = [doublet_predict[obs_name] for obs_name in list(adata.obs_names)]
 
 def get_sketch(adata,key,folds=10,how='pd',min_num_per_key=500,start='filter',raw=True):
-    '''geometric sketching based on diffusion map and pca
-    folds: folds to subsample
-    min_num_per_key: minimun number to sample'''
+    """
+    * 03/08/2022
+    Geometric sketching based on diffusion map and pca.
+
+    adata,                 REQUIRED | AnnData object.
+    key,                   REQUIRED | Feature to filter the cells by (e.g adata.obs[key]). 
+    folds,                 REQUIRED | The number of folds the genes will be divided into. Default = 10
+    how,                   REQUIRED | Method to use for geometric sketching. Defualt = 'pd'
+    min_num_per_key,       REQUIRED | The minimum number of cells to sample. Default = 500
+    start,             NOT REQUIRED | The start condition of the adata. Default = 'filter'
+    raw,                   REQUIRED | Boolean to whether or not use the raw data. Default = True
+
+
+    Options for "how": p, d, pd
+    p makes use of pca, d makes use of diffusion map. pd makes use of both
+
+    Options for "start": 'filter'
+    If filter is used the data will not be filter, otherwise filtering will be applied.
+    """
+
     sketch_index = []
     for smp in set(adata.obs[key]):
         print(smp)
@@ -303,6 +320,16 @@ def is_cycling(adata,cc_genes=cc_genes,cut_off=0.4):
     adata.obs['isCycle'] = X>cut_off
     
 def get_subset(idata, select, cc_genes=cc_genes, log=False,raw=True):
+    """
+    * 03/08/2022
+    Extracts a subset of cells from the given 'idata' according to the 'select' parameter.
+
+    idata,          REQUIRED | The initial AnnData object.
+    select,         REQUIRED | Feature to filter the cells by. idata.obs[select]
+    cc_genes,   NOT REQUIRED | List of proliferating genes to remove from the data. Defualt list = cc_genes in genes.py
+    log,        NOT REQUIRED | Logarithmize the data matrix. Default = False
+    raw,        NOT REQUIRED | Use the raw data to get the cells. Defualt = True 
+    """
     if raw:
         adata = sc.AnnData(idata[select].raw.X)
         adata.var = idata.raw.var
