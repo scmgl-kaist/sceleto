@@ -43,9 +43,9 @@ def sc_process(adata,pid = 'fspkuc',n_pcs=50): # simplified scanpy preprocessing
     * 03/07/22
     Performs desired scanpy preprocessing according to the letters passed into the pid parameter
 
-    adata,         REQUIRED | AnnData object.
-    pid,           REQUIRED | A string made out of letters, each corresponding to a scanpy preprocessing function.
-    n_pcs,     NOT REQUIRED | Number of PCs to be used for neighbor search. Default = 50
+    adata:AnnData,      REQUIRED | AnnData object.
+    pid:str,            REQUIRED | A string made out of letters, each corresponding to a scanpy preprocessing function.
+    n_pcs:int,      NOT REQUIRED | Number of PCs to be used for neighbor search. Default = 50
 
     Letters for pid and their corresponding function:
 
@@ -100,17 +100,17 @@ def read_process(adata,version,
     * 03/07/22
     Used for reading and saving the data with desired cell filtration.
 
-    adata,            REQUIRED | AnnData object.
-    version,          REQUIRED | The version of the h5ad file.
-    species,          REQUIRED | The species which the data belongs to. Default = 'human'
-    sample,           REQUIRED | Name of the sample the cells belong to. Default = None
-    define_var,   NOT REQUIRED | Defines gene names if true and adds it to adata. Default = True
-    call_doublet, NOT REQUIRED | Identifies doublet cells and stores it in adata. Default = True
-    write,        NOT REQUIRED | Saves the file. Default = True
-    min_n_counts      REQUIRED | Minimum number of counts per cell. Default = 1000
-    min_n_genes       REQUIRED | Minimum number of genes per cell. Default = 500
-    max_n_genes       REQUIRED | Maximum number of genes per cell. Defualt = 7000
-    max_p_mito        REQUIRED | Maximum allowed ratio of mithochondrial genes. Default = 0.5
+    adata:AnnData,            REQUIRED | AnnData object.
+    version:str,              REQUIRED | The version of the h5ad file.
+    species:str,              REQUIRED | The species which the data belongs to. Default = 'human'
+    sample:str,               REQUIRED | Name of the sample the cells belong to. Default = None
+    define_var:boolean,   NOT REQUIRED | Defines gene names if true and adds it to adata. Default = True
+    call_doublet:boolean, NOT REQUIRED | Identifies doublet cells and stores it in adata. Default = True
+    write:boolean,        NOT REQUIRED | Saves the file. Default = True
+    min_n_counts:int,         REQUIRED | Minimum number of counts per cell. Default = 1000
+    min_n_genes:int,          REQUIRED | Minimum number of genes per cell. Default = 500
+    max_n_genes:int,          REQUIRED | Maximum number of genes per cell. Defualt = 7000
+    max_p_mito:float,         REQUIRED | Maximum allowed ratio of mithochondrial genes. Default = 0.5
 
     """
 
@@ -162,8 +162,8 @@ def write_notebook(name1,name2):
     * 03/07/22
     Used for reading and saving a jupyter notebook as a new notebook.
 
-    name1,          REQUIRED | Name of the original notebook.
-    name2,          REQUIRED | Name of the new notebook.
+    name1:str,          REQUIRED | Name of the original notebook.
+    name2:str,          REQUIRED | Name of the new notebook.
 
     """
     os.system(f'jupyter nbconvert {name1} --to notebook --ClearOutputPreprocessor.enabled=True --output {name2}')
@@ -173,7 +173,7 @@ def sort_var_names_based_on_GeneID(adata):
     * 03/07/22
     Sorts adata based on GeneID and returns a copy
 
-    adata,          REQUIRED | AnnData object.
+    adata:AnnData,         REQUIRED | AnnData object.
 
     """
     return adata[:,np.argsort(adata.var.GeneID)].copy()
@@ -183,10 +183,10 @@ def combine_batch(adata,key1,key2,new_key = 'batch'):
     * 03/07/22
     Combines two features of the cells into a single feature and stores that as a new feature.
 
-    adata,          REQUIRED | AnnData object.
-    key1,           REQUIRED | 1st desired feature of adata.obs.
-    key2,           REQUIRED | 2nd desired feature of adata.obs.
-    new_key,        REQUIRED | Name of the newly made feature. Default = 'batch'
+    adata:AnnData,       REQUIRED | AnnData object.
+    key1:str,            REQUIRED | 1st desired feature of adata.obs.
+    key2:str,            REQUIRED | 2nd desired feature of adata.obs.
+    new_key:str,         REQUIRED | Name of the newly made feature. Default = 'batch'
     """
     print('storing new batch into '+new_key)
     adata.obs[new_key] = ['{}_{}'.format(k1,k2) for k1,k2 in zip(adata.obs[key1],adata.obs[key2])]
@@ -196,8 +196,8 @@ def doublet(adata, key='Sample'):
     * 03/07/22
     Detects doublets using scrublet per given key
 
-    adata,          REQUIRED | AnnData object.
-    key,            REQUIRED | The cell feature to use for doublet detecting (e.g data.obs[key]). 
+    adata:AnnData,          REQUIRED | AnnData object.
+    key:str,                REQUIRED | The cell feature to use for doublet detecting (e.g data.obs[key]). 
     """
     
     doublet = []
@@ -217,13 +217,13 @@ def get_sketch(adata,key,folds=10,how='pd',min_num_per_key=500,start='filter',ra
     * 03/08/2022
     Geometric sketching based on diffusion map and pca.
 
-    adata,                 REQUIRED | AnnData object.
-    key,                   REQUIRED | Feature to filter the cells by (e.g adata.obs[key]). 
-    folds,                 REQUIRED | The number of folds the genes will be divided into. Default = 10
-    how,                   REQUIRED | Method to use for geometric sketching. Defualt = 'pd'
-    min_num_per_key,       REQUIRED | The minimum number of cells to sample. Default = 500
-    start,             NOT REQUIRED | The start condition of the adata. Default = 'filter'
-    raw,                   REQUIRED | Boolean to whether or not use the raw data. Default = True
+    adata:AnnData,               REQUIRED | AnnData object.
+    key:str,                     REQUIRED | Feature to filter the cells by (e.g adata.obs[key]). 
+    folds:int,                   REQUIRED | The number of folds the genes will be divided into. Default = 10
+    how:str,                     REQUIRED | Method to use for geometric sketching. Defualt = 'pd'
+    min_num_per_key:int,         REQUIRED | The minimum number of cells to sample. Default = 500
+    start:str,               NOT REQUIRED | The start condition of the adata. Default = 'filter'
+    raw:boolean,                 REQUIRED | Use raw data. Default = True
 
 
     Options for "how": p, d, pd
@@ -272,11 +272,11 @@ def bbknn_umap(adata,batch_key,n_pcs,cluster=False,n_neighbors=3):
     * 03/08/2022
     Applies bbknn batch correction method and creates a umap.
 
-    adata,                 REQUIRED | AnnData object.
-    batch_key,             REQUIRED | The feature to use for batch correction (e.g adata.obs[key]). 
-    n_pcs,                 REQUIRED | Number of principle components to use in batch correction.
-    cluster,           NOT REQUIRED | Boolean for applying leiden clustering or not. Default = False
-    n_neighbors,           REQUIRED | Number of neighbors to use for batch correction. Default = 3
+    adata:AnnData,              REQUIRED | AnnData object.
+    batch_key:str,              REQUIRED | The feature to use for batch correction (e.g adata.obs[key]). 
+    n_pcs:int,                  REQUIRED | Number of principle components to use in batch correction.
+    cluster:boolean,        NOT REQUIRED | Apply leiden clustering. Default = False
+    n_neighbors:int,            REQUIRED | Number of neighbors to use for batch correction. Default = 3
     """
     bbknn(adata,batch_key=batch_key,n_pcs=n_pcs,approx=False,neighbors_within_batch=n_neighbors)
     if cluster:
@@ -288,8 +288,8 @@ def umap(adata,name=None):
     * 03/08/2022
     Creates a umap.
 
-    adata,                 REQUIRED | AnnData object.
-    name,              NOT REQUIRED | For specifying a unique name for the umap. Default = None
+    adata:AnnData,         REQUIRED | AnnData object.
+    name:str,          NOT REQUIRED | For specifying a unique name for the umap. Default = None
     """
     sc.tl.umap(adata)
     if name:
@@ -300,9 +300,9 @@ def umap_show(adata, feature, name=None):
     * 03/08/2022
     Shows the umap.
 
-    adata,                 REQUIRED | AnnData object.
-    feature,               REQUIRED | Feature of the cells that will be used for coloring the umap. Example = adata.obs['leiden']
-    name,              NOT REQUIRED | If given a name, save the feature with the given name to adata.obs. Default = None
+    adata:AnnData,             REQUIRED | AnnData object.
+    feature:str,               REQUIRED | Feature of the cells that will be used for coloring the umap. Example = adata.obs['leiden']
+    name:str,              NOT REQUIRED | If given a name, save the feature with the given name to adata.obs. Default = None
     """
     if name:
         adata.obs[name] = feature
@@ -314,6 +314,15 @@ def umap_show(adata, feature, name=None):
 # Clustering
         
 def leiden_res(adata,res,show=False):
+    """
+    * 03/10/2022
+    Cluster cells using leiden algorithm with the given resolution
+
+    adata:AnnData,      REQUIRED | AnnData object.
+    res:float,          REQUIRED | The resolution of the clustering, higher resolutions lead to more clusters. 
+    show:boolean,   NOT REQUIRED | Plot the umap. Default = False.   
+
+    """
     print('calculating leiden at res {0:.2f}...'.format(res))
     sc.tl.leiden(adata,resolution=res)
     print('copying into obs.leiden_{0:.2f}...'.format(res))
@@ -322,23 +331,43 @@ def leiden_res(adata,res,show=False):
         sc.pl.umap(adata,color='leiden_{0:.2f}'.format(res))
         
 def subcluster(adata,obs_label,cl_label,new_label,res=0.1):
-    '''
-    take specific cluster from adata and split that into smaller cluster
-    adata: AnnData object
-    obs_label: obs label. eg. 'leiden' or 'celltype'
-    cl_label: cluster name. eg. '1' or 'macrophage'
-    new_label: name to store updated label
-    '''
+    """
+    * 03/10/2022
+    Take a specific cluster from adata and split that into smaller clusters
+
+    adata:AnnData,       REQUIRED | AnnData object.
+    obs_label:str,       REQUIRED | obs label. (e.g 'leiden' or 'celltype')
+    cl_label:str,        REQUIRED | Cluster name. (e.g '1' or 'macrophage')
+    new_label:str,       REQUIRED | Name to store updated label.
+    res:float,       NOT REQUIRED | Resolution of leiden clustering. Default = 0.1
+    """
     subset = adata[adata.obs[obs_label]==cl_label].copy()
     sc.tl.leiden(subset,resolution=res)
     update_dict = {obs_name:cl_label+'_'+new_cl for obs_name,new_cl in zip(subset.obs_names,subset.obs['leiden'])}
     adata.obs[new_label] = [old if obs_name not in update_dict else update_dict[obs_name] for obs_name, old in zip(adata.obs_names,adata.obs[obs_label])]
         
 def remove_geneset(adata,geneset):
+    """
+    * 03/10/2022
+    Remove the given geneset from adata
+
+    adata:AnnData,         REQUIRED | AnnData object.
+    geneset:list,          RQUIRED  | List of genes to be removed.
+    """
+
     adata = adata[:,~adata.var_names.isin(list(geneset))].copy()
     return adata
 
 def is_cycling(adata,cc_genes=cc_genes,cut_off=0.4):
+    """
+    * 03/10/2022
+    Check whether the gene is a cycling gene
+
+    adata:AnnData,          REQUIRED | AnnData object.
+    cc_genes:list,          REQUIRED | List of proliferating genes. Default = cc_genes list in genes.py
+    cut_off:float,          REQUIRED | Cut off for percentage of cells in cc_genes. Default = 0.4
+    """
+
     X = np.mean(adata.raw.X[:,adata.raw.var_names.isin(cc_genes)],axis=1)
     plt.hist(X)
     adata.obs['Cycle_score'] = X
@@ -347,13 +376,13 @@ def is_cycling(adata,cc_genes=cc_genes,cut_off=0.4):
 def get_subset(idata, select, cc_genes=cc_genes, log=False,raw=True):
     """
     * 03/08/2022
-    Extracts a subset of cells from the given 'idata' according to the 'select' parameter.
+    Extract a subset of cells from the given 'idata' according to the 'select' parameter.
 
-    idata,          REQUIRED | The initial AnnData object.
-    select,         REQUIRED | Feature to filter the cells by. idata.obs[select]
-    cc_genes,   NOT REQUIRED | List of proliferating genes to remove from the data. Defualt list = cc_genes in genes.py
-    log,        NOT REQUIRED | Logarithmize the data matrix. Default = False
-    raw,        NOT REQUIRED | Use the raw data to get the cells. Defualt = True 
+    idata:AnnData,           REQUIRED | The initial AnnData object.
+    select:str,              REQUIRED | Feature to filter the cells by. idata.obs[select]
+    cc_genes:list,       NOT REQUIRED | List of proliferating genes to remove from the data. Defualt list = cc_genes in genes.py
+    log:boolean,         NOT REQUIRED | Logarithmize the data matrix. Default = False
+    raw:booean,          NOT REQUIRED | Use the raw data to get the cells. Defualt = True 
     """
     if raw:
         adata = sc.AnnData(idata[select].raw.X)
@@ -375,6 +404,12 @@ def get_subset(idata, select, cc_genes=cc_genes, log=False,raw=True):
     return adata
 
 def get_raw(idata):
+    """
+    * 03/10/2022
+    Return the raw data of idata
+
+    idata:AnnData,    REQUIRED | AnnData object.
+    """
     adata = sc.AnnData(idata.raw.X)
     adata.var = idata.raw.var
     adata.obs = idata.obs
@@ -383,6 +418,14 @@ def get_raw(idata):
     return adata
 
 def get_raw_process(idata, cc_genes=cc_genes, log=False):
+    """
+    * 03/10/2022
+    Return the processed raw data of idata
+
+    idata:AnnData,      REQUIRED | AnnData object.
+    cc_genes:list,      REQUIRED | List of proliferating genes. Default = cc_genes list in genes.py
+    log:boolean,    NOT REQUIRED | Logarithmarize the data. Default = False
+    """
     adata = sc.AnnData(idata.raw.X)
     adata.var = idata.raw.var
     adata.obs = idata.obs
@@ -399,6 +442,16 @@ def get_raw_process(idata, cc_genes=cc_genes, log=False):
     return adata
 
 def output_matrix_Seurat(adata,version,name,use_raw=False):
+    """
+    * 03/10/2022
+    Create an mtx matrix file alongside with meta.csv and var.csv files using adata.
+
+    adata:AnnData,         REQUIRED | AnnData object.
+    version:str,           REQUIRED | Version number.
+    name:str,              REQUIRED | Name of the version.
+    use_raw:boolean,   NOT REQUIRED | Use raw data. Default = False.
+    """
+
     from scipy.io import mmwrite
     
     if use_raw:
@@ -413,6 +466,17 @@ def output_matrix_Seurat(adata,version,name,use_raw=False):
         adata.var.to_csv(version+name+'.var.csv')
 
 def us(adata,gene,groups=None, show=False, exclude =None,figsize=None,**kwargs):
+    """
+    * 03/10/2022
+    Create a umap using a list of genes.
+
+    adata:AnnData,         REQUIRED | AnnData object.
+    gene:list/str,         REQUIRED | List of genes to use for UMAP. A coma seperated string can be used instead of a list
+    groups:str,        NOT REQUIRED | Restrict to a few categories in categorical observation annotation
+    show:boolean,      NOT REQUIRED | Show the plot. Default = False.
+    exclude:list,      NOT REQUIRED | List of genes to exclude. 
+    figsize:float,     NOT REQUIRED | Figure size.
+    """
     from matplotlib import rcParams
     if figsize:
         rcParams['figure.figsize'] = figsize
