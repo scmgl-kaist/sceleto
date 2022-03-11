@@ -493,11 +493,16 @@ def us(adata,gene,groups=None, show=False, exclude =None,figsize=None,**kwargs):
     rcParams['figure.figsize'] = [5,5]
     
 def merge_matrix(ad,obskeys = None,use_raw = False,keep_only_mutual=False):
-    '''merge matrix stored in ad
-    ad: dictionary of anndata to merge
-    obskeys: list to merge within anndata
-    use_raw: if True, merge from .raw.X'''
-    
+    """
+    * 03/11/2022
+    Merge the matrices found in 'ad' dictionary.
+
+    ad:dictionary,                     REQUIRED | Dictionary of multiple AnnData objects.
+    obskeys: str,                  NOT REQUIRED | Features of objects to merge.
+    use_raw:boolean,               NOT REQUIRED | Use raw data (AnnData.raw.X). Default = False.
+    keep_only_mutual:boolean,      NOT REQUIRED | Keep mutual obs (Not Complete). Default = False.
+    """
+
     smp_list = list(ad.keys())
     obs_dict = defaultdict(list)
     obs_names = []
@@ -544,10 +549,22 @@ def merge_matrix(ad,obskeys = None,use_raw = False,keep_only_mutual=False):
     return adata
 
 def timestamp():
+    """
+    * 03/11/2022
+    Get current date and time.
+    
+    """
     from datetime import datetime
     return datetime.now().strftime("%y%m%d%H%M")
 
 def save_html(name,log=False): # export notebook into html file
+    """
+    * 03/11/2022
+    Save jupyter notebook as html
+
+    name:str,         REQUIRED | Name of the jupyter notebook.
+    log:boolean,  NOT REQUIRED | Default = False.
+    """
     time = timestamp()
     print(os.system('jupyter nbconvert --to html %s'%(name)))
     name_key = re.sub('.ipynb$','',name)
@@ -557,12 +574,29 @@ def save_html(name,log=False): # export notebook into html file
         print(os.system('mv %s.html %s_%s.html'%(name_key,name_key,time)))
 
 def write(adata,version,name):
-    '''write adata into [name]'''
+    """
+    * 03/11/2022
+    Writes adata with the given name and version
+
+    adata:AnnData,         REQUIRED | AnnData object.
+    version:str,           REQUIRED | Version of the adata.
+    name:str,              REQUIRED | Name of the adata.
+    """
+
     name = version + name
     sc.write(name,adata)
     print("_".join(name.split(".")) + " = '%s'"%name)
     
 def save_fig(version,figcount,fig_format='pdf',fig_folder='11_Figs'):
+    """
+    * 03/11/2022
+    Save the current matplotlib figure
+
+    version:str,           REQUIRED | Version of the figure.
+    figcount:str,          REQUIRED | Count of the figure.
+    fig_format:str,        REQUIRED | Format of the figure. Default = pdf.
+    fig_folder:str,        REQUIRED | Name of the folder to save figs. Default = '11_Figs'
+    """
     
     plt.savefig('%s/%s%s.%s'%(fig_folder,version,figcount,fig_format),bbox_inches='tight',format=fig_format,dpi=300)
     print('%s/%s%s.pdf'%(fig_folder,version,figcount))
@@ -570,11 +604,15 @@ def save_fig(version,figcount,fig_format='pdf',fig_folder='11_Figs'):
 # batch regression methods
 
 def regress_batch_v2(adata,batch_key,confounder_key):
-    '''batch regression tool
-    batch_key=list of observation categories to be regressed out
-    confounder_key=list of observation categories to be kept
-    returns ndata with corrected X'''
+    """
+    * 03/11/2022
+    Batch regression tool. It returns an AnnData object with corrected X
 
+    adata:AnnData,          REQUIRED | AnnData object.
+    batch_key:list,         REQUIRED | List of observation categories to be regressed out.
+    confounder_key:list,    REQUIRED | list of observation categories to be kept
+    """
+    
     from sklearn.linear_model import Ridge
     
     print('fitting linear model...')
