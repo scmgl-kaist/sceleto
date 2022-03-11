@@ -638,6 +638,18 @@ def regress_batch_v2(adata,batch_key,confounder_key):
     return ndata, X_explained
 
 def regress_iter(adata,batch_key,confounder_key,bbknn_key,scale=True, approx = True,n_pcs=50):
+    """
+    * 03/11/2022
+    Batch regression and correction (bbknn) tool. It returns an AnnData object with corrected X,
+
+    adata:AnnData,          REQUIRED | AnnData object.
+    batch_key:list,         REQUIRED | List of observation categories to be regressed out.
+    confounder_key:list,    REQUIRED | List of observation categories to be kept.
+    bbknn_key:str,          REQUIRED | Feature of the observations to use for batch correction.
+    scale:boolean,      NOT REQUIRED | Apply scaling to the adata. Default = True
+    approx:boolean,         REQUIRED | Approximate. Default = True
+    n_pcs:int,              REQUIRED | Number of principle components to use at bbknn. Default = 50
+    """
     if scale == True:
         print('scaling data...')
         sc.pp.scale(adata,max_value=10)
@@ -652,6 +664,16 @@ def run_pca_bbknn_umap(ad,level_key,bbknn_key,marker_dict,
                        resolution=0.02,start = 'leiden',select=False,
                       thres=0.95,min_drop_cut=0.5,show=True, how='almost',
                       min_cluster_num = 200):
+    """
+    * 03/11/2022
+    Run pca, bbknn, umap and clustering to find good low-rescluster with markers
+
+    ad:dictionary,       REQUIRED | Dictionary of AnnData matrices.
+    level_key:str,       REQUIRED | Name of the AnnData matrix to be used.
+    bbknn_key:str,       REQUIRED | Feature of the observations to use for batch correction.
+    
+    WORK IN PROGRESS
+    """
     '''
     run pca, bbknn, umap and clustering to find good low-rescluster with markers
     how = [almost, any, all] for marker_found function
