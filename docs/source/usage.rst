@@ -11,8 +11,11 @@ Import Sceleto as:
 Workflow
 ------------
 
-A typical workflow consists of calling functions in the form of 
-:py:`scl.function_name(adata, ***function_params)`
+A typical workflow consists of calling functions in the form of:
+
+.. code-block:: python
+   
+   scl.function_name(adata, ***function_params)
 
 AnnData
 ------------
