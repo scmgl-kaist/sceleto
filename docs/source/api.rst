@@ -19,7 +19,7 @@ scl.markers.marker [Class]
 
    marker_object = scl.markers.marker(adata, 'leiden')
    
-The :code:`marker` class has two methods associated with it, :py:function:`plot_marker()` and :py:function:`show_marker`.
+The :code:`marker` class has two methods associated with it, :code:`plot_marker` and :code:`show_marker`.
 
 .. code-block:: python
 
@@ -27,12 +27,12 @@ The :code:`marker` class has two methods associated with it, :py:function:`plot_
 
    marker_object.show_marker()
 
-:py:function:`plot_marker` function creates a dot plot of the marker genes, while :py:function:`show_marker` prints out the marker genes related to that label.
+:code:`plot_marker` function creates a dot plot of the marker genes, while :code:`show_marker` prints out the marker genes related to that label.
 
 scl.markers.find_markers()
 --------------------------
 
-:py:function:`find_markers` finds the marker genes for the given label and stores them as a dictionary at adata.uns.cdm_groupby.
+:py:function:`markers.find_markers` finds the marker genes for the given label and stores them as a dictionary at adata.uns.cdm_groupby.
 
 In order to use the other functions in the module, it is advised to first run this function or to create a marker class.
 The produced dictionary at adata.uns.cdm_groupby can then be used as the input for cdm_out argument for the other functions.
