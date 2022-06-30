@@ -5,7 +5,29 @@ import matplotlib.pyplot as plt
 
 
 class marker():
+    """
+    * 06/30/22
+    Creates a marker object. This object contains the marker genes for the desired label of the AnnData.
+
+    --inputs--
+
+    adata:AnnData,      REQUIRED | AnnData object.
+    label:str,          REQUIRED | Desired label to find markers for.
     
+    --kwargs--
+    
+    scanpy:boolean      Default = None
+    single:boolean      Default = True
+    thres:float         Default = 0.2
+    min_mean_cut:float  Default = 0.2
+    min_drop_cut:float  Default = 0.2
+    min_cnt_cut:float   Default = 10
+
+    --methods--
+
+    plot_marker: Creates a dot plot of the marker genes
+    show_marker: Prints a dictionary of marker genes
+    """
     def __init__(self,adata,label,**kwargs):
         self.adata = adata
         self.label = label
