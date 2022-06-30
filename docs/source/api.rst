@@ -11,7 +11,7 @@ Import Sceleto as:
 Marker
 ------
 
-:py::func:`scl.markers.marker` is a class that can be used to find the marker genes for a given label of an `AnnData <https://scanpy.readthedocs.io/en/stable/usage-principles.html#anndata>`_ object.
+``scl.markers.marker`` is a class that can be used to find the marker genes for a given label of an `AnnData <https://scanpy.readthedocs.io/en/stable/usage-principles.html#anndata>`_ object.
 
 
 
@@ -19,7 +19,7 @@ Marker
 
    marker_object = scl.markers.marker(adata, 'leiden')
    
-The :py::class:`marker` class has two methods associated with it, :py::func:`plot_marker` and :py::func:`show_marker`.
+The ``marker`` class has two methods associated with it, ``plot_marker`` and ``show_marker``.
 
 .. code-block:: python
 
@@ -27,5 +27,5 @@ The :py::class:`marker` class has two methods associated with it, :py::func:`plo
 
    marker_object.show_marker()
 
-:py::func:`plot_marker` function creates a dot plot of the marker genes, while :py::func:`show_marker` prints out the marker genes related to that label.
+``plot_marker`` function creates a dot plot of the marker genes, while ``show_marker`` prints out the marker genes related to that label.
 
