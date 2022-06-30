@@ -1,4 +1,4 @@
-Usage
+API
 =====
 
 Import Sceleto as:
