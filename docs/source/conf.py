@@ -3,7 +3,6 @@
 # -- Project information
 
 project = 'Sceleto'
-copyright = ''
 author = 'SCMGL'
 
 release = '0.9.8'
