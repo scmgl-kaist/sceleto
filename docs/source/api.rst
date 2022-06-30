@@ -19,7 +19,7 @@ Marker
 
    marker_object = scl.markers.marker(adata, 'leiden')
    
-The ``marker`` class has two methods associated with it, ``plot_marker`` and ``show_marker``.
+The :py:`marker` class has two methods associated with it, :py:`plot_marker` and :py:`show_marker`.
 
 .. code-block:: python
 
