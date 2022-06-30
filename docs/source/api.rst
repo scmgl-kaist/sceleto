@@ -19,7 +19,7 @@ Marker
 
    marker_object = scl.markers.marker(adata, 'leiden')
    
-The :py:`marker` class has two methods associated with it, :py:`plot_marker` and :py:`show_marker`.
+The :code:`marker` class has two methods associated with it, :code:`plot_marker` and :code:`show_marker`.
 
 .. code-block:: python
 
@@ -27,5 +27,5 @@ The :py:`marker` class has two methods associated with it, :py:`plot_marker` and
 
    marker_object.show_marker()
 
-``plot_marker`` function creates a dot plot of the marker genes, while ``show_marker`` prints out the marker genes related to that label.
+:code:`plot_marker` function creates a dot plot of the marker genes, while :code:`show_marker` prints out the marker genes related to that label.
 
