@@ -32,10 +32,10 @@ The :code:`marker` class has two methods associated with it, :code:`plot_marker`
 scl.markers.find_markers()
 --------------------------
 
-:py:func:`markers.find_markers` finds the marker genes for the given label and stores them as a dictionary at adata.uns.cdm_groupby.
+:py:func:`markers.find_markers` finds the marker genes for the given label and stores them as a dictionary at ``adata.uns.cdm_groupby``.
 
 In order to use the other functions in the module, it is advised to first run this function or to create a marker class.
-The produced dictionary at adata.uns.cdm_groupby can then be used as the input for cdm_out argument for the other functions.
+The produced dictionary at ``adata.uns.cdm_groupby`` can then be used as the input for the ``cdm_out`` argument for the other functions.
 
 .. code-block:: python
 
