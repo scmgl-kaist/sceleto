@@ -41,6 +41,21 @@ class marker():
 # Marker gene analysis
 
 def find_markers(adata,groupby,scanpy=None,single=True,thres=0.2,min_mean_cut=0.2, min_drop_cut=0.2,min_cnt_cut=10):
+    """
+    * 06/30/22
+    Finds the marker genes for the given label and stores them as a dictionary at adata.uns.cdm_groupby. 
+    
+    In order to use the other functions in the module, it is advised to first run this function or to create a marker class.
+    The produced dictionary at adata.uns.cdm_groupby can then be used as the input for cdm_out argument for the other functions.
+
+    --inputs--
+
+    adata:AnnData,    REQUIRED | AnnData object.
+    groupby:str,      REQUIRED | Desired label to find markers for    
+
+
+
+    """
     adata.uns['cdm_'+groupby]=calculate_markers(adata,groupby) 
     if single==False:
         mks=find_markers_multiple(adata,adata.uns['cdm_'+groupby],
@@ -56,7 +71,7 @@ def find_markers(adata,groupby,scanpy=None,single=True,thres=0.2,min_mean_cut=0.
     return mks
 
 def calculate_markers(adata,group_key,exclude = None, cnt_cut=0, tot_cnt_cut=0):
-
+     
     # group_key = 'louvain'
     # tot_cnt_cut = minimum cell number for ct, default 0, no cut here
     # cnt_cut = minumum cell number of expressing that gene per cell, otherwise, 0
