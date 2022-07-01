@@ -99,7 +99,7 @@ Performs desired scanpy preprocessing according to the letters passed into the p
 
 .. code-block:: python
 
-   sc_process(adata,pid = 'fspkuc')
+   scl.sc_process(adata, pid = 'fspkuc')
 
 ========  =================
 letter    function
@@ -119,7 +119,9 @@ c         leiden clustering
 scl.us()
 --------
 
+.. code-block:: python 
+
+   scl.us(adata, genes)
+
 Creates a umap using a list of genes. Genes can either be provided as a list or as a comma seperated string
 
-.. code-block:: python 
-   scl.us(adata, genes)
