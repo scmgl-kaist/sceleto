@@ -2,8 +2,8 @@
 API
 ===
 
-Markers module
-=============
+Marker Genes: markers
+=====================
 
 The ``scl.markers`` module provides some useful functions and classes that can be used to find and visualise marker genes.  
 
@@ -83,8 +83,8 @@ However, the above function itself will not plot the volcano plot. The :py:func:
    my_plot.draw()
 
 
-Model module
-============
+Logistic Regression: module
+===========================
 
 
 
