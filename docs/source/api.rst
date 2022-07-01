@@ -101,22 +101,25 @@ Performs desired scanpy preprocessing according to the letters passed into the p
 
    sc_process(adata,pid = 'fspkuc')
 
-Where:
-    n: normalise
-    l: log
-    f: filter hvg
-    r: remove cc_genes
-    s: scale
-    p: pca
-    k: knn_neighbors
-    u: umap
-    c: leiden clustering
+========  =================
+letter    function
+========  =================
+n         normalise
+l         log
+f         filter hvg
+r         remove cc_genes
+s         scale
+p         pca
+k         knn_neighbors
+u         umap
+c         leiden clustering
+        
+========  =================
 
 scl.us()
 --------
 
 Creates a umap using a list of genes. Genes can either be provided as a list or as a comma seperated string
 
-.. code-block::python
-
+.. code-block:: python 
    scl.us(adata, genes)
