@@ -32,15 +32,48 @@ The :code:`marker` class has two methods associated with it, :code:`plot_marker`
 scl.markers.find_markers()
 --------------------------
 
-:py:func:`markers.find_markers` finds the marker genes for the given label and stores them as a dictionary at ``adata.uns.cdm_groupby``.
+:py:func:`markers.find_markers` finds the marker genes for the given label and stores them as a dictionary at ``adata.uns['cdm_groupby']``.
 
 In order to use the other functions in the module, it is advised to first run this function or to create a marker class.
-The produced dictionary at ``adata.uns.cdm_groupby`` can then be used as the input for the ``cdm_out`` argument for the other functions.
+The produced dictionary at ``adata.uns['cdm_groupby']`` can then be used as the input for the ``cdm_out`` argument for the other functions.
 
 .. code-block:: python
 
    scl.markers.find_markers(adata, 'leiden')
    
+In the above example, the dictionary containing marker genes will be created at ``adata.uns['cdm_leiden']``.
 
+scl.markers.find_markers_single()
+---------------------------------
+
+:py:func:`markers.find_marker_single` finds all of the marker genes for the given ``adata`` and ``cdm_out`` dictrionary.
+
+.. code-block:: python
+
+   scl.markers.find_markers(adata,'leiden')
+   scl.markers.find_markers_single(adata, cdm_out=adata.uns['cdm_leiden'])
+
+Creating a ``scl.markers.marker`` class and accesing the `mks` paramater of the created object gives out the same result as above
+
+.. code-block:: python
+
+   marker_dictionary = scl.markers.marker(adata, 'leiden').mks
+
+This is because the ``scl.markers.marker`` class uses :py:func:`markers.find_markers` and :py:func:`markers.find_markers_single` by default.
+
+scl.markers.volcano_plot [Class]
+--------------------------------
+
+This class creates a volcano plot of the ``anndata`` with the given ``anno_key`` (i.e. leiden, age, status ...) of the groups specified as ``comp1`` and ``comp2``.
+
+.. code-block:: python
+
+   my_plot = scl.markers.volcano_plot(adata, 'leiden', 2, 5) #compares leiden groups 2 and 5
+
+However, the above function itself will not plot the volcano plot. The :py:func:`draw()` method has to be called on the onbject to acquire the plot.
+
+.. code-block:: python
+
+   my_plot.draw()
 
 
