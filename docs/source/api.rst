@@ -1,5 +1,11 @@
+===
 API
-=====
+===
+
+Markers module
+=============
+
+The ``scl.markers`` module provides some useful functions and classes that can be used to find and visualise marker genes.  
 
 Import Sceleto as:
 
@@ -64,16 +70,53 @@ This is because the ``scl.markers.marker`` class uses :py:func:`markers.find_mar
 scl.markers.volcano_plot [Class]
 --------------------------------
 
-This class creates a volcano plot of the ``anndata`` with the given ``anno_key`` (i.e. leiden, age, status ...) of the groups specified as ``comp1`` and ``comp2``.
+This class creates a volcano plot of the desired groups (``comp1`` and ``comp2``) of the given ``anno_key`` (i.e. leiden, age, status ...) beloning to  ``anndata``.
 
 .. code-block:: python
 
    my_plot = scl.markers.volcano_plot(adata, 'leiden', 2, 5) #compares leiden groups 2 and 5
 
-However, the above function itself will not plot the volcano plot. The :py:func:`draw()` method has to be called on the onbject to acquire the plot.
+However, the above function itself will not plot the volcano plot. The :py:func:`draw()` method has to be called on the object to acquire the plot.
 
 .. code-block:: python
 
    my_plot.draw()
 
 
+Model module
+============
+
+
+
+
+Useful functions
+================
+
+scl.sc_process()
+----------------
+
+Performs desired scanpy preprocessing according to the letters passed into the pid parameter
+
+.. code-block:: python
+
+   sc_process(adata,pid = 'fspkuc')
+
+Where:
+    n: normalise
+    l: log
+    f: filter hvg
+    r: remove cc_genes
+    s: scale
+    p: pca
+    k: knn_neighbors
+    u: umap
+    c: leiden clustering
+
+scl.us()
+--------
+
+Creates a umap using a list of genes. Genes can either be provided as a list or as a comma seperated string
+
+.. code-block::python
+
+   scl.us(adata, genes)
