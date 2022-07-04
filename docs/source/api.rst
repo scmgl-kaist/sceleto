@@ -70,7 +70,7 @@ This is because the ``scl.markers.marker`` class uses :py:func:`markers.find_mar
 scl.markers.volcano_plot [Class]
 --------------------------------
 
-This class creates a volcano plot of the desired groups (``comp1`` and ``comp2``) of the given ``anno_key`` (i.e. leiden, age, status ...) beloning to  ``anndata``.
+This class creates a volcano plot of the desired groups (``comp1`` and ``comp2``) of the given ``anno_key`` (i.e. leiden, age, status ...) beloning to  ``AnnData``.
 
 .. code-block:: python
 
@@ -83,10 +83,21 @@ However, the above function itself will not plot the volcano plot. The :py:func:
    my_plot.draw()
 
 
-Logistic Regression: module
+Predicting Annotation: model
 ===========================
 
+scl.model.transfer_annotation_jp
+--------------------------------
 
+The sceleto package contains the function :py:func:`model.transfer_annotation_jp`, which uses an annotated ``AnnData`` object to predict the annotations
+of another ``AnnData`` object, which is not annotated. The function makes use of logistic regression and the gene expressions of the cells.
+
+.. code-block:: python
+
+   scl.model.transfer_annotation_jp(muscle, 'annotation', liver, 'predicted_annotation')
+
+In the above example one can imagine that an annotated AnnData object called muscle was used to predict the annotation of the cells in an AnnData object
+that was called liver. 
 
 
 Useful functions

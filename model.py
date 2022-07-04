@@ -47,7 +47,16 @@ def plot_roc(y_prob, y_test, lr):
 def transfer_annotation_jp(input_adata,y_id,output_adata,y_out,select_num=200,log=None,exclude=[],raw=True):
     ad_model = generate_training_X(input_adata,y_id,select_num=select_num,exclude=exclude)
     #sc.pl.umap(ad_model,color=y_id)
+    """
+    * 07/04/22
+    Uses annotation on an AnnData to predict the annotation on another unlabeled AnnData.
+    This function uses logistic regressing and the gene expressions for the predictions.
 
+    input_adata:AnnData,      REQUIRED | AnnData object with labels that will be used for training.
+    y_id:string,              REQUIRED | Name of the label on the annotated AnnData.
+    output_adata:AnnData,     REQUIRED | AnnData object for which the annotations will be predicted.
+    y_out:string,             REQUIRED | Name of the label of the predicted annotation.
+    """
     if raw==False:
         X_model = ad_model.X
     else:
