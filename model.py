@@ -16,11 +16,11 @@ def generate_training_X(adata,ct_key,select_num=200,exclude=[]):
                                          
     return ad_model
 
-def logistic_model(data, cell_types, sparsity=0.2, fraction=0.2, penalty='l2'):
+def logistic_model(data, cell_types, sparsity=0.2, fraction=0.2, penalty='l2',  max_iter=100):
     X = data
     X_train, X_test, y_train, y_test = \
     train_test_split(X, cell_types, test_size=fraction)
-    lr = LogisticRegression(penalty=penalty, C=sparsity)
+    lr = LogisticRegression(penalty=penalty, C=sparsity, max_iter=max_iter)
     lr.fit(X_train, y_train)
     y_prob = lr.predict_proba(X_test)
     return y_prob, y_test, lr
@@ -44,7 +44,7 @@ def plot_roc(y_prob, y_test, lr):
     plt.title("Min AUC: %.3f"%(min_auc))
     return(min_auc)
 
-def transfer_annotation_jp(input_adata,y_id,output_adata,y_out,select_num=200,log=None,exclude=[],raw=True):
+def transfer_annotation_jp(input_adata,y_id,output_adata,y_out,select_num=200,log=None,exclude=[],raw=True, max_iter=100):
     ad_model = generate_training_X(input_adata,y_id,select_num=select_num,exclude=exclude)
     #sc.pl.umap(ad_model,color=y_id)
     """
@@ -70,7 +70,7 @@ def transfer_annotation_jp(input_adata,y_id,output_adata,y_out,select_num=200,lo
         X_predict = output_adata.raw.X
 
     print("creating lr model...")
-    y_prob, y_test, lr =  logistic_model(X_model, y_model, sparsity=0.2, fraction=0.2, penalty='l2')
+    y_prob, y_test, lr =  logistic_model(X_model, y_model, sparsity=0.2, fraction=0.2, penalty='l2', max_iter=max_iter)
     plot_roc(y_prob, y_test, lr)
     
     print("making lr prediction...")
