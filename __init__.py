@@ -121,7 +121,7 @@ def read_process(adata,version,
         adata.var['GeneName'] = list(adata.var.gene_ids.index)
         adata.var['EnsemblID'] = list(adata.var.gene_ids)
     adata.obs['n_counts'] = np.sum(adata.X, axis=1).A1
-    adata.obs['n_genes'] = np.sum(adata.X>0,axis=1)
+    adata.obs['n_genes'] = np.sum(adata.X>0,axis=1).A1
     
     print('calculating mito... as species = {}'.format(species))
     if species=='mouse':
