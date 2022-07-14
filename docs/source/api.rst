@@ -136,7 +136,7 @@ Returns a dictionary which contains some data about the differentialy expressed 
 .. code-block:: python
 
    deg_als_alzheimer = scl.jhk.diffxpy_deg(adata,'Disease','ALS',"Alzheimer's", cell_type='predicted_annotation', tissue='brain', test='t_test')
-   scl.jhk.ad_summary(deg_als_alzheimer,'tissue_microglia')
+   scl.jhk.deg_summary(deg_als_alzheimer,'tissue_microglia')
 
 The dictionary that is returned after running the :py:func:`scl.jhk.diffxpy_deg` function can be used as an input for this function.
 
