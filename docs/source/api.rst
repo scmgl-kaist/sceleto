@@ -129,7 +129,7 @@ The dictionary that is returned after running the :py:func:`scl.jhk.diffxpy_deg`
 scl.jhk.deg_summary
 --------------------
 
- Returns a dictionary containing some data about the differentialy expressed genes belonging to a certain cell type.
+Returns a dictionary which contains some data about the differentialy expressed genes belonging to a certain cell type.
 
 .. code-block:: python
    deg_als_alzheimer = scl.jhk.diffxpy_deg(adata,'Disease','ALS',"Alzheimer's", cell_type='predicted_annotation', tissue='brain', test='t_test')
@@ -137,6 +137,25 @@ scl.jhk.deg_summary
 
 The dictionary that is returned after running the :py:func:`scl.jhk.diffxpy_deg` function can be used as an input for this function.
 
+scl.jhk.deg_summary
+--------------------
+
+Returns a dictionary which contains some data regarding the provided ``AnnData`` object.
+
+.. code-block:: python
+   scl.jhk.ad_summary(anndata)
+
+scl.jhk.sample_volcano
+----------------------
+
+Creates a sample_volcane object by using samplewise data that is inputted using patient_id.
+To draw the volcano plot call the :py:func:`draw` method.
+
+.. code-block:: python
+   volcano_example_1 = scl.jhk.sample_volcano(dcdata,patient_id='PatientID',anno_key='ASDC',comp1='ASDC',comp2='DC',quick=True)
+   volcano_example_2 = scl.jhk.sample_volcano(natsub,patient_id='sample',anno_key='status',comp1='MS postTx',comp2='MS preTx',quick=True)
+   
+   volcano_example_2.draw(title='Title',sig_mode='pval',x_pos=0.7,pvalue_cut=1.7,show=True)
 
 Useful functions
 ================

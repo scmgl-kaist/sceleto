@@ -92,7 +92,7 @@ def plot_volcano(query_dict, query_ct):
 # Summarizing DEG results
 def deg_summary(query_dict, query_ct):
     """
-    Returns some data bout the differentialy expressed genes belonging to a certain cell type
+    Returns a dictionary containing some data about the differentialy expressed genes belonging to a certain cell type
 
     query_dict: dictionary,    REQUIRED | A dictionary containing differentially expressed genes for each cell type
     query_ct:   str,           REQUIRED | Name of the cell type to be used
@@ -124,7 +124,7 @@ class sample_volcano():
     def __init__(self,adata,patient_id,anno_key,comp1,comp2,P=0.01,quick=True,
                  fc_cut_pval=0.5,n_pos_cell=10,n_patient_cell=10):
         """
-        Creates a volcano plot by using samplewise data that is inputted using patient_id
+        Creates a sample_volcane object by using samplewise data that is inputted using patient_id
 
         adata: AnnData         REQUIRED | Scanpy AnnData object to be used.
         patient_id: str        REQUIRED | Name of the column that contains the ids for the samples.
