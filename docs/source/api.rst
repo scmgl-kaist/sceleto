@@ -14,8 +14,8 @@ Import Sceleto as:
     import sceleto as scl
 
 
-scl.markers.marker [Class]
---------------------------
+scl.markers.marker 
+-------------------
 
 ``scl.markers.marker`` is a class that can be used to find the marker genes for a given label of an `AnnData <https://scanpy.readthedocs.io/en/stable/usage-principles.html#anndata>`_ object.
 
@@ -35,8 +35,8 @@ The :code:`marker` class has two methods associated with it, :code:`plot_marker`
 
 :code:`plot_marker` function creates a dot plot of the marker genes, while :code:`show_marker` prints out the marker genes related to that label.
 
-scl.markers.find_markers()
---------------------------
+scl.markers.find_markers
+-------------------------
 
 :py:func:`markers.find_markers` finds the marker genes for the given label and stores them as a dictionary at ``adata.uns['cdm_groupby']``.
 
@@ -49,8 +49,8 @@ The produced dictionary at ``adata.uns['cdm_groupby']`` can then be used as the 
    
 In the above example, the dictionary containing marker genes will be created at ``adata.uns['cdm_leiden']``.
 
-scl.markers.find_markers_single()
----------------------------------
+scl.markers.find_markers_single
+-------------------------------
 
 :py:func:`markers.find_marker_single` finds all of the marker genes for the given ``adata`` and ``cdm_out`` dictrionary.
 
@@ -67,8 +67,8 @@ Creating a ``scl.markers.marker`` class and accesing the `mks` paramater of the 
 
 This is because the ``scl.markers.marker`` class uses :py:func:`markers.find_markers` and :py:func:`markers.find_markers_single` by default.
 
-scl.markers.volcano_plot [Class]
---------------------------------
+scl.markers.volcano_plot 
+-------------------------
 
 This class creates a volcano plot of the desired groups (``comp1`` and ``comp2``) of the given ``anno_key`` (i.e. leiden, age, status ...) beloning to  ``AnnData``.
 
@@ -99,11 +99,49 @@ of another ``AnnData`` object, which is not annotated. The function makes use of
 In the above example one can imagine that an annotated AnnData object called muscle was used to predict the annotation of the cells in an AnnData object
 that was called liver. 
 
+Extra Functions/Classes for DEG Analysis: jhk
+=============================================
+
+The set of functions created by Junho Kang to aid his studies are provided in this module. 
+
+scl.jhk.diffxpy_deg
+--------------------
+
+This function can be used to find the correlation between two differentially expressed genes 
+belonging to two subgroups of a main group. I.e. correlation between deg of two disease types.
+
+.. code-block:: python
+    scl.jhk.diffxpy_deg(adata,'Disease','ALS',"Alzheimer's", cell_type='predicted_annotation', tissue='brain', test='t_test')
+
+Note: It returns a dictionary.
+
+scl.jhk.plot_volcano
+--------------------
+
+Can be used to create a volcano plot of differentially expressed genes belonging to a certain cell type.
+
+.. code-block:: python
+   deg_als_alzheimer = scl.jhk.diffxpy_deg(adata,'Disease','ALS',"Alzheimer's", cell_type='predicted_annotation', tissue='brain', test='t_test')
+   scl.jhk.plot_volcano(deg_als_alzheimer,'tissue_microglia')
+
+The dictionary that is returned after running the :py:func:`scl.jhk.diffxpy_deg` function can be used as an input for this function.
+
+scl.jhk.deg_summary
+--------------------
+
+ Returns a dictionary containing some data about the differentialy expressed genes belonging to a certain cell type.
+
+.. code-block:: python
+   deg_als_alzheimer = scl.jhk.diffxpy_deg(adata,'Disease','ALS',"Alzheimer's", cell_type='predicted_annotation', tissue='brain', test='t_test')
+   scl.jhk.ad_summary(deg_als_alzheimer,'tissue_microglia')
+
+The dictionary that is returned after running the :py:func:`scl.jhk.diffxpy_deg` function can be used as an input for this function.
+
 
 Useful functions
 ================
 
-scl.sc_process()
+scl.sc_process
 ----------------
 
 Performs desired scanpy preprocessing according to the letters passed into the pid parameter
@@ -127,7 +165,7 @@ c         leiden clustering
         
 ========  =================
 
-scl.us()
+scl.us
 --------
 
 .. code-block:: python 
