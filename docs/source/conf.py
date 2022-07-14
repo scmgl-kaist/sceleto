@@ -5,8 +5,8 @@
 project = 'Sceleto'
 author = 'SCMGL'
 
-release = '0.9.8'
-version = '0.9.8'
+release = '1.1.*'
+version = '1.1.*'
 
 # -- General configuration
 
