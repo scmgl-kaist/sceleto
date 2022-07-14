@@ -137,7 +137,7 @@ Returns a dictionary which contains some data about the differentialy expressed 
 
 The dictionary that is returned after running the :py:func:`scl.jhk.diffxpy_deg` function can be used as an input for this function.
 
-scl.jhk.deg_summary
+scl.jhk.ad_summary
 --------------------
 
 Returns a dictionary which contains some data regarding the provided ``AnnData`` object.
