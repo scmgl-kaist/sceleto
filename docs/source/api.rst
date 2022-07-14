@@ -107,7 +107,7 @@ The set of functions created by Junho Kang to aid his studies are provided in th
 scl.jhk.diffxpy_deg
 --------------------
 
-This function can be used to find the correlation between two differentially expressed genes 
+This function can be used to find the correlation between differentially expressed genes 
 belonging to two subgroups of a main group. I.e. correlation between deg of two disease types.
 
 .. code-block:: python
@@ -156,7 +156,7 @@ Creates a sample_volcane object by using samplewise data that is inputted using 
 To draw the volcano plot call the :py:func:`draw` method.
 
 .. code-block:: python
-   
+
    volcano_example_1 = scl.jhk.sample_volcano(dcdata,patient_id='PatientID',anno_key='ASDC',comp1='ASDC',comp2='DC',quick=True)
    volcano_example_2 = scl.jhk.sample_volcano(natsub,patient_id='sample',anno_key='status',comp1='MS postTx',comp2='MS preTx',quick=True)
    
