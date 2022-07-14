@@ -111,6 +111,7 @@ This function can be used to find the correlation between two differentially exp
 belonging to two subgroups of a main group. I.e. correlation between deg of two disease types.
 
 .. code-block:: python
+
     scl.jhk.diffxpy_deg(adata,'Disease','ALS',"Alzheimer's", cell_type='predicted_annotation', tissue='brain', test='t_test')
 
 Note: It returns a dictionary.
@@ -121,6 +122,7 @@ scl.jhk.plot_volcano
 Can be used to create a volcano plot of differentially expressed genes belonging to a certain cell type.
 
 .. code-block:: python
+
    deg_als_alzheimer = scl.jhk.diffxpy_deg(adata,'Disease','ALS',"Alzheimer's", cell_type='predicted_annotation', tissue='brain', test='t_test')
    scl.jhk.plot_volcano(deg_als_alzheimer,'tissue_microglia')
 
@@ -132,6 +134,7 @@ scl.jhk.deg_summary
 Returns a dictionary which contains some data about the differentialy expressed genes belonging to a certain cell type.
 
 .. code-block:: python
+
    deg_als_alzheimer = scl.jhk.diffxpy_deg(adata,'Disease','ALS',"Alzheimer's", cell_type='predicted_annotation', tissue='brain', test='t_test')
    scl.jhk.ad_summary(deg_als_alzheimer,'tissue_microglia')
 
@@ -143,6 +146,7 @@ scl.jhk.ad_summary
 Returns a dictionary which contains some data regarding the provided ``AnnData`` object.
 
 .. code-block:: python
+
    scl.jhk.ad_summary(anndata)
 
 scl.jhk.sample_volcano
@@ -152,6 +156,7 @@ Creates a sample_volcane object by using samplewise data that is inputted using 
 To draw the volcano plot call the :py:func:`draw` method.
 
 .. code-block:: python
+   
    volcano_example_1 = scl.jhk.sample_volcano(dcdata,patient_id='PatientID',anno_key='ASDC',comp1='ASDC',comp2='DC',quick=True)
    volcano_example_2 = scl.jhk.sample_volcano(natsub,patient_id='sample',anno_key='status',comp1='MS postTx',comp2='MS preTx',quick=True)
    
