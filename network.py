@@ -140,7 +140,7 @@ def impute_neighbor(bdata,n_neighbor=10):
     
     # Get neighborhood structure based on 
     ckd = cKDTree(bdata.obsm["X_umap"])
-    ckdout = ckd.query(x=bdata.obsm["X_umap"], k=n_neighbor, n_jobs=n_jobs)
+    ckdout = ckd.query(x=bdata.obsm["X_umap"], k=n_neighbor)
     indices = ckdout[1]
     
     sum_list = []
