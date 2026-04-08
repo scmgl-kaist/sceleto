@@ -1,0 +1,708 @@
+from __future__ import annotations
+
+from dataclasses import dataclass
+from typing import Any, Dict, List, Sequence, Tuple, Optional
+
+import numpy as np
+import pandas as pd
+
+from ._gene_filter import GeneFilter
+
+
+@dataclass(frozen=True)
+class BatchExpression:
+    """Per-batch expression arrays for one resolution level."""
+
+    mean: np.ndarray  # (n_groups, n_batches, n_genes)
+    frac_expr: np.ndarray  # (n_groups, n_batches, n_genes)
+    groups: List[str]
+    batches: List[str]
+    genes: np.ndarray
+    group_to_idx: Dict[str, int]
+
+
+@dataclass
+class HierarchyRun:
+    # Inputs / meta
+    levels: List[str]
+    params: Dict[str, Any]
+
+    # Key artifacts you already build
+    icls_full_dict: Dict[str, str]
+    icls_path_df: pd.DataFrame
+    marker_rank_df: pd.DataFrame
+    icls_gene_presence_df: pd.DataFrame
+    gene_freq_df: pd.DataFrame
+    score_df: pd.DataFrame
+
+    # Tree artifacts
+    tree_root: Dict[str, Any]
+    icls_to_path: Dict[int, List[str]]
+
+    # Full (untruncated) ranked gene lists per leiden ID
+    full_gene_lists: Dict[str, List[str]]
+
+    # Expression contexts per resolution (groupby -> MarkerContext)
+    contexts: Dict[str, Any]
+
+    # Per-batch expression data (groupby -> BatchExpression); None if no batch_key
+    batch_expression: Optional[Dict[str, BatchExpression]]
+
+    # Batch key used (None if not provided)
+    batch_key: Optional[str]
+
+    # Output from your printing traversal (markers per branching)
+    markers: Any
+
+    def compare_markers(
+        self,
+        icls: str,
+        *,
+        figsize=None,
+        gene_filter: Optional[GeneFilter] = None,
+        return_genes: bool = False,
+    ):
+        """Visualize top-N marker overlap across levels for a given icls.
+
+        Parameters
+        ----------
+        icls
+            ICLS id (string/int).
+        figsize
+            Matplotlib figsize. If None, computed automatically.
+        gene_filter
+            Optional :class:`GeneFilter`.  Excluded genes are skipped and
+            the next-ranked gene fills the slot.
+        return_genes
+            If True, return the sorted union of marker genes across levels
+            instead of plotting.
+        """
+        import matplotlib.pyplot as plt
+        import seaborn as sns
+
+        # Get the leiden IDs for each level for this icls
+        leiden_list = self.icls_path_df.set_index("icls").loc[icls, self.levels].tolist()
+        n = self.params["n_top_markers"]
+
+        # Build gene sets per level
+        sets = []
+        for lid in leiden_list:
+            genes = self.full_gene_lists[lid]
+            if gene_filter is not None:
+                genes = gene_filter.filter(genes)
+            sets.append(set(genes[:n]))
+
+        # Build dataframe for gene sets per level
+        union = sorted(set().union(*sets))
+
+        df = pd.DataFrame(
+            {lid: [1 if g in s else 0 for g in union] for lid, s in zip(leiden_list, sets)},
+            index=union,
+        ).sort_values(leiden_list, ascending=False).T
+
+        # use user provided figsize, otherwise compute automatically
+        if figsize is None:
+            figsize = (len(union) * 0.4, 2)
+
+        plt.figure(figsize=figsize)
+        sns.heatmap(
+            df,
+            cmap="Blues",
+            linewidths=0.5,
+            linecolor="black",
+            cbar=False,
+            xticklabels=True,
+        )
+        plt.title(f'Marker genes for path {icls}')
+        plt.xlabel("")
+        plt.show()
+
+        if return_genes:
+            return union
+
+    def compare_markers_batch(
+        self,
+        icls: str,
+        *,
+        figsize=None,
+        gene_filter: Optional[GeneFilter] = None,
+        return_genes: bool = False,
+    ):
+        """Visualize top-N marker overlap with per-batch expression strips.
+
+        Each gene×cluster cell is subdivided into ``n_batches`` thin vertical
+        strips, sorted from highest to lowest mean expression within that cell.
+        Strips are coloured by the normalised mean expression (0–1 per gene).
+
+        Parameters
+        ----------
+        icls
+            ICLS id (string/int).
+        figsize
+            Matplotlib figsize.  If None, computed automatically.
+        gene_filter
+            Optional :class:`GeneFilter`.
+        return_genes
+            If True, return the sorted gene list instead of plotting.
+        """
+        import matplotlib.pyplot as plt
+        import matplotlib.colors as mcolors
+        from matplotlib.patches import Rectangle
+
+        if self.batch_expression is None:
+            raise ValueError(
+                "No batch expression data. Re-run hierarchy() with batch_key."
+            )
+
+        # --- resolve leiden IDs and genes (same as compare_markers) ----------
+        leiden_list = (
+            self.icls_path_df.set_index("icls").loc[icls, self.levels].tolist()
+        )
+        n = self.params["n_top_markers"]
+
+        sets = []
+        for lid in leiden_list:
+            genes = self.full_gene_lists[lid]
+            if gene_filter is not None:
+                genes = gene_filter.filter(genes)
+            sets.append(set(genes[:n]))
+
+        union = sorted(set().union(*sets))
+
+        # sort genes the same way as binary heatmap (presence pattern)
+        presence_df = pd.DataFrame(
+            {lid: [1 if g in s else 0 for g in union]
+             for lid, s in zip(leiden_list, sets)},
+            index=union,
+        ).sort_values(leiden_list, ascending=False)
+        union = presence_df.index.tolist()
+
+        if return_genes:
+            return union
+
+        n_rows = len(leiden_list)
+        n_cols = len(union)
+
+        # --- collect per-batch mean expression for each (leiden, gene) -------
+        # batch_vals[row][col] = 1-D array of length n_batches (sorted desc)
+        batch_vals: List[List[np.ndarray]] = []
+        global_max = 0.0  # for colour normalisation
+
+        for lid in leiden_list:
+            groupby, group_name = lid.split("@", 1)
+            be = self.batch_expression[groupby]
+            g_idx = be.group_to_idx[group_name]
+            gene_indices = {g: int(i) for i, g in enumerate(be.genes)}
+
+            row_vals: List[np.ndarray] = []
+            for gene in union:
+                if gene in gene_indices:
+                    vals = be.mean[g_idx, :, gene_indices[gene]].copy()
+                else:
+                    vals = np.zeros(len(be.batches), dtype=np.float32)
+                row_vals.append(np.sort(vals)[::-1])  # descending
+                mx = vals.max()
+                if mx > global_max:
+                    global_max = mx
+            batch_vals.append(row_vals)
+
+        n_batches = len(next(iter(self.batch_expression.values())).batches)
+
+        # --- per-gene normalisation (0-1) ------------------------------------
+        # Collect max expression per gene across all rows/batches
+        gene_max = np.zeros(n_cols, dtype=np.float32)
+        for row in batch_vals:
+            for j, vals in enumerate(row):
+                mx = vals.max()
+                if mx > gene_max[j]:
+                    gene_max[j] = mx
+
+        # --- draw figure -----------------------------------------------------
+        if figsize is None:
+            figsize = (n_cols * 0.6, n_rows * 0.8 + 0.5)
+
+        fig, ax = plt.subplots(figsize=figsize)
+        cmap = plt.cm.Reds
+
+        cell_w = 1.0  # width of one gene column
+        cell_h = 1.0  # height of one cluster row
+        strip_w = cell_w / n_batches
+
+        for i, lid in enumerate(leiden_list):
+            y = n_rows - 1 - i  # bottom-up so first leiden is at top
+            for j, gene in enumerate(union):
+                # only show batch strips for genes that are markers
+                # for this cluster (where binary heatmap would show 1)
+                is_marker = gene in sets[i]
+                if is_marker:
+                    vals = batch_vals[i][j]
+                    gmax = gene_max[j]
+                    for b in range(n_batches):
+                        norm_val = (vals[b] / gmax) if gmax > 0 else 0.0
+                        colour = cmap(norm_val)
+                        rect = Rectangle(
+                            (j * cell_w + b * strip_w, y * cell_h),
+                            strip_w,
+                            cell_h,
+                            facecolor=colour,
+                            edgecolor="none",
+                        )
+                        ax.add_patch(rect)
+                # cell border
+                ax.add_patch(Rectangle(
+                    (j * cell_w, y * cell_h),
+                    cell_w, cell_h,
+                    facecolor="none", edgecolor="black", linewidth=0.5,
+                ))
+
+        ax.set_xlim(0, n_cols * cell_w)
+        ax.set_ylim(0, n_rows * cell_h)
+        ax.set_xticks([j * cell_w + cell_w / 2 for j in range(n_cols)])
+        ax.set_xticklabels(union, rotation=90, ha="center", fontsize=8)
+        ax.set_yticks([i * cell_h + cell_h / 2 for i in range(n_rows)])
+        ax.set_yticklabels(leiden_list[::-1], fontsize=9)
+        ax.set_title(f"Marker genes for path {icls} (per-batch)")
+
+        # colorbar
+        sm = plt.cm.ScalarMappable(
+            cmap=cmap, norm=mcolors.Normalize(vmin=0, vmax=1),
+        )
+        sm.set_array([])
+        cbar = fig.colorbar(sm, ax=ax, fraction=0.02, pad=0.02)
+        cbar.set_label("Normalized\nmean expression")
+
+        plt.tight_layout()
+        plt.show()
+
+
+def _compute_batch_expression(adata, ctx, batch_key, use_raw=True):
+    """Compute per-batch expression statistics for one resolution level."""
+    from scipy import sparse
+
+    if use_raw and adata.raw is not None:
+        X = adata.raw.X
+    else:
+        X = adata.X
+
+    if not sparse.issparse(X):
+        X = sparse.csr_matrix(X)
+    else:
+        X = X.tocsr()
+
+    groups = ctx.groups
+    group_to_idx = ctx.group_to_idx
+    genes = ctx.genes
+    batches = sorted(adata.obs[batch_key].astype(str).unique().tolist())
+
+    n_groups = len(groups)
+    n_batches = len(batches)
+    n_genes = len(genes)
+
+    mean = np.zeros((n_groups, n_batches, n_genes), dtype=np.float32)
+    frac_expr = np.zeros((n_groups, n_batches, n_genes), dtype=np.float32)
+
+    obs_groups = adata.obs[ctx.groupby].astype(str).to_numpy()
+    obs_batches = adata.obs[batch_key].astype(str).to_numpy()
+
+    for g_name, g_idx in group_to_idx.items():
+        g_mask = obs_groups == g_name
+        for b_idx, b_name in enumerate(batches):
+            mask = g_mask & (obs_batches == b_name)
+            n_cells = int(mask.sum())
+            if n_cells == 0:
+                continue
+            Xsub = X[mask]
+            mean[g_idx, b_idx] = np.asarray(Xsub.mean(axis=0)).ravel()
+            frac_expr[g_idx, b_idx] = Xsub.getnnz(axis=0) / n_cells
+
+    return BatchExpression(
+        mean=mean,
+        frac_expr=frac_expr,
+        groups=groups,
+        batches=batches,
+        genes=genes,
+        group_to_idx=group_to_idx,
+    )
+
+
+def hierarchy(
+    adata: Any,
+    markers_list: Sequence[Any],
+    *,
+    min_cells_for_path: int = 500,
+    n_top_markers: int = 10,
+    gene_filter: Optional[GeneFilter] = None,
+    batch_key: Optional[str] = None,
+) -> HierarchyRun:
+    """
+    Run the user's hierarchy pipeline as-is and return all intermediate tables.
+
+    Notes
+    -----
+    - This function intentionally preserves the user's original logic.
+    - It writes `adata.obs["path"]` and `adata.obs["icls"]` as side effects (same as the script).
+    """
+    # ----------------------------
+    # (User code) 그대로 시작
+    # ----------------------------
+    markers_list = list(markers_list)
+
+    g0, g1, g2 = [marker_output.ctx.groupby for marker_output in markers_list]
+
+    # 1) Ensure categorical dtype and preserve desired category order
+    #    (If already categorical with correct order, this is harmless.)
+    for g in (g0, g1, g2):
+        if not pd.api.types.is_categorical_dtype(adata.obs[g]):
+            adata.obs[g] = adata.obs[g].astype("category")
+        # Keep current categories order explicitly (optional but makes intent clear)
+        adata.obs[g] = adata.obs[g].cat.set_categories(adata.obs[g].cat.categories, ordered=True)
+
+    # 2) Build per-cell path strings (cell order is preserved automatically)
+    adata.obs["path"] = (
+        f"{g0}@" + adata.obs[g0].astype(str)
+        + "|" + f"{g1}@" + adata.obs[g1].astype(str)
+        + "|" + f"{g2}@" + adata.obs[g2].astype(str)
+    )
+
+    # 3) (Optional, but usually what people mean by "keep the order" after concatenation)
+    #    Make `path` categorical with categories ordered by the cartesian product of cat.categories
+    path_categories = [
+        f"{g0}@{x}|{g1}@{y}|{g2}@{z}"
+        for x in adata.obs[g0].cat.categories
+        for y in adata.obs[g1].cat.categories
+        for z in adata.obs[g2].cat.categories
+    ]
+
+    adata.obs["path"] = pd.Categorical(adata.obs["path"], categories=path_categories, ordered=True)
+
+    # excluding small
+    path_idx = adata.obs["path"].value_counts() < min_cells_for_path
+
+    # Compute small paths (keep your logic)
+    small_path_idx = adata.obs["path"].value_counts().loc[lambda s: s < min_cells_for_path].index
+
+    # Mark small as missing (do NOT recast)
+    mask_small = adata.obs["path"].isin(small_path_idx)
+    adata.obs.loc[mask_small, "path"] = pd.NA
+
+    # Rebuild categories in the original intended order
+    # - Keep only categories that still appear (non-missing)
+    present = set(adata.obs["path"].dropna().unique())
+
+    # Keep order defined by the original cartesian-product list
+    new_categories = [c for c in path_categories if c in present]
+
+    # Apply categories explicitly (this preserves your intended order)
+    adata.obs["path"] = adata.obs["path"].cat.set_categories(new_categories, ordered=True)
+
+    icls_full_dict: Dict[str, str] = {}
+    for i, path in enumerate(adata.obs["path"].cat.categories):
+        icls_full_dict[str(i)] = path
+
+    path_to_key = {v: k for k, v in icls_full_dict.items()}
+    adata.obs["icls"] = adata.obs["path"].map(path_to_key).astype("string")
+
+    df_icls_path = pd.DataFrame(pd.Series(icls_full_dict), columns=["icls_full"])
+    df_icls_path[g0] = [x.split("|")[0] for x in df_icls_path["icls_full"]]
+    df_icls_path[g1] = [x.split("|")[1] for x in df_icls_path["icls_full"]]
+    df_icls_path[g2] = [x.split("|")[2] for x in df_icls_path["icls_full"]]
+    df_icls_path["root"] = df_icls_path[g0]
+    df_icls_path = df_icls_path.reset_index(names="icls")
+
+    rows: List[List[Any]] = []
+    full_gene_lists: Dict[str, List[str]] = {}
+    for level_key, marker_output in zip([g0, g1, g2], markers_list):
+        for k, v in marker_output.specific_marker_log.items():
+            leiden_id = f"{level_key}@{k}"
+            full_gene_lists[leiden_id] = list(v)
+            genes = gene_filter.filter(v) if gene_filter is not None else v
+            for i, gene in enumerate(genes[:n_top_markers]):
+                rows.append([f"{level_key}", leiden_id, gene, i + 1])
+
+    df_marker_rank = pd.DataFrame(rows, columns=["resolution", "leiden", "gene", "rank"])
+
+    temp: List[pd.DataFrame] = []
+
+    for k, v in icls_full_dict.items():
+        l0 = v.split("|")[0]
+        l1 = v.split("|")[1]
+        l2 = v.split("|")[2]
+
+        # (A, rank) Pivot to gene x resolution table
+        piv = df_marker_rank[df_marker_rank["leiden"].isin([l0, l1, l2])].pivot(
+            index="gene", columns="resolution", values="rank"
+        )
+        # Ensure all three resolutions are present and in [g0, g1, g2] order
+        piv = piv.reindex(columns=[g0, g1, g2])
+        # (B, binary) Convert presence/absence to 1/0
+        df_binary = piv.notna().astype("int8")  # or "int"
+
+        # merge (A) and (B)
+        df = pd.merge(piv, df_binary, left_index=True, right_index=True, how="left")
+        df.columns = ["rank_0", "rank_1", "rank_2", "present_0", "present_1", "present_2"]
+        df["n_levels"] = df["present_0"] + df["present_1"] + df["present_2"]
+        df = pd.merge(
+            pd.Series([k for _ in range(df.shape[0])], name="icls"),
+            df.reset_index(),
+            how="left",
+            left_index=True,
+            right_index=True,
+        )
+        df = df.sort_values("n_levels", ascending=False)
+
+        temp.append(df)
+
+    icls_gene_presence = pd.concat(temp, axis=0).reset_index(drop=True)
+
+    # --- Robustly define "gene is present in this icls" ---
+    # If present_* columns exist, use them; otherwise assume each (icls, gene) row is already a union member.
+    present_cols = [c for c in icls_gene_presence.columns if c.startswith("present_")]
+    if present_cols:
+        present_any = icls_gene_presence[present_cols].fillna(False).astype(bool).any(axis=1)
+        df_use = icls_gene_presence.loc[present_any, ["icls", "gene"]].copy()
+    else:
+        df_use = icls_gene_presence.loc[:, ["icls", "gene"]].copy()
+
+    # --- Global DF/IDF across icls (icls-level document frequency) ---
+    N_icls = df_use["icls"].nunique()
+
+    gene_freq = (
+        df_use.groupby("gene")["icls"]
+        .nunique()
+        .rename("df_global_icls")
+        .reset_index()
+    )
+
+    gene_freq["frac_icls"] = gene_freq["df_global_icls"] / N_icls
+
+    # Smooth IDF (always >= 1)
+    gene_freq["idf_global_icls"] = np.log((N_icls + 1) / (gene_freq["df_global_icls"] + 1)) + 1.0
+
+    # Optional: index by gene and sort
+    gene_freq = (
+        gene_freq.set_index("gene")
+        .sort_values(["df_global_icls", "idf_global_icls"], ascending=[False, True])
+    )
+
+    gene_freq.columns = ["n_icls", "frac_icls", "idf_icls"]
+
+    score_df = pd.merge(icls_gene_presence, gene_freq.reset_index(), how="left", on="gene")
+    score_df["icls"] = score_df["icls"].astype("int")
+
+    # Example input: list of "path" strings
+    paths_str = icls_full_dict.values()
+
+    # Parse paths
+    paths = [s.split("|") for s in paths_str]
+
+    icls_tree: Dict[str, Any] = {}
+    for p in paths:
+        cur = icls_tree
+        for node in p:
+            cur = cur.setdefault(node, {})
+
+    # Hierarchy Dictionary
+    hierarchy_map = icls_full_dict
+
+    # 2. Build the Tree Structure
+    # Tree node structure: { 'name': 'leiden_X.0@Y', 'children': {}, 'icls_indices': [] }
+    tree_root: Dict[str, Any] = {}
+
+    # icls to leaf node map (나중에 데이터 조회용)
+    icls_to_path: Dict[int, List[str]] = {}
+
+    for icls_idx, path_str in hierarchy_map.items():
+        parts = path_str.split("|")
+        current_level = tree_root
+
+        path_list: List[str] = []
+        for part in parts:
+            path_list.append(part)
+            if part not in current_level:
+                current_level[part] = {"children": {}, "icls_indices": [], "level_name": part}
+
+            # 해당 노드 하위에 속하는 모든 icls index 저장
+            current_level[part]["icls_indices"].append(int(icls_idx))
+            current_level = current_level[part]["children"]
+
+        icls_to_path[int(icls_idx)] = path_list
+
+    # 4. Scoring Logic (The Core)
+    def find_branching_markers(parent_node_name, children_dict, score_df, target_level_suffix):
+        """
+        Sibling Competition을 수행하여 각 자식 노드를 대표하는 마커 선정
+        target_level_suffix: '2.0' or '4.0' (비교에 사용할 데이터 컬럼 접미사)
+        """
+        if not children_dict:
+            return {}
+
+        rank_col = f"rank_{target_level_suffix}"
+        present_col = f"present_{target_level_suffix}"
+
+        # 1. 모든 자식 노드의 데이터 준비
+        children_stats = {}
+        all_genes = set()
+
+        for child_name, child_node in children_dict.items():
+            stats = get_node_stats(child_node["icls_indices"], score_df, rank_col, present_col)
+            children_stats[child_name] = stats
+            all_genes.update(stats.index.tolist())
+
+        results = {}
+
+        # 2. 각 자식 노드별로 스코어 계산
+        for target_child, target_stats in children_stats.items():
+            scores = []
+
+            # 형제 노드들의 리스트
+            siblings = [name for name in children_stats if name != target_child]
+
+            for gene in target_stats.index:
+                # A. Basic Info
+                my_present = target_stats.loc[gene, present_col]
+                if my_present == 0:
+                    continue  # 내가 안 가지고 있으면 마커 후보 탈락 (Positive Marker Only)
+
+                my_rank = target_stats.loc[gene, rank_col]
+                idf = target_stats.loc[gene, "idf_icls"]
+
+                # B. Exclusivity Calculation
+                sibling_present_vals = []
+                for sib in siblings:
+                    if gene in children_stats[sib].index:
+                        sibling_present_vals.append(children_stats[sib].loc[gene, present_col])
+                    else:
+                        sibling_present_vals.append(0)
+
+                # 형제들의 평균 발현 여부 (0~1)
+                avg_sibling_present = np.mean(sibling_present_vals) if siblings else 0
+
+                # Exclusivity: 나한테는 있는데(1), 남들은 없을수록(0) -> 1.0에 가까워짐
+                exclusivity = my_present - avg_sibling_present
+
+                if exclusivity <= 0.1:
+                    continue  # 변별력이 너무 낮으면 스킵
+
+                # C. Intensity (Rank Score)
+                # Rank 1 -> 1.0, Rank 10 -> 0.1, Rank 100 -> 0.01
+                rank_score = 1.0 / (my_rank + 1.0)
+
+                # D. Priority Boost
+                # removed
+
+                # E. Final Score
+                # idf는 보통 log scale이므로 그대로 곱하거나, 너무 흔한걸 죽이기 위해 사용
+                final_score = exclusivity * (1 + rank_score) * np.log1p(idf)
+
+                scores.append((gene, final_score, my_rank, exclusivity))
+
+            # Sort by score desc
+            scores.sort(key=lambda x: x[1], reverse=True)
+            results[target_child] = scores[:5]  # Top 5 markers
+
+        return results
+
+    # 3. Helper Function: Get aggregated stats for a node
+    def get_node_stats(icls_indices, score_df, target_rank_col, target_present_col):
+        """
+        해당 노드(여러 icls의 집합)에 대한 유전자 통계를 구함.
+        여기서는 해당 노드에 속한 icls 중 하나라도 present면 1, rank는 min(best) rank를 사용.
+        """
+        # Filter DF for relevant icls
+        subset = score_df[score_df["icls"].isin(icls_indices)].copy()
+
+        # rank 컬럼이 NaN이면 매우 큰 값으로 대체
+        subset[target_rank_col] = subset[target_rank_col].fillna(100)
+        subset[target_present_col] = subset[target_present_col].fillna(0)
+
+        stats = subset.groupby("gene").agg(
+            {
+                target_rank_col: "min",
+                target_present_col: "max",  # max: any member has it
+                "idf_icls": "first",
+            }
+        )
+        return stats
+
+    # 5. Recursive Execution & Printing
+    def print_tree(node, level_prefix=g0, depth=0):
+        indent = "    " * depth
+
+        if depth == 0:  # Root (Virtual or 1.0 container)
+            print("Hierarchical Marker Tree")
+            print("=" * 30)
+
+        children = node
+        if not children:
+            return
+
+        # Determine stats level based on child names
+        first_child = next(iter(children))
+        if g1 in first_child:
+            target_suffix = "1"
+        elif g2 in first_child:
+            target_suffix = "2"
+        else:
+            target_suffix = "0"  # Fallback
+
+        # Calculate Markers for this branching
+        markers = find_branching_markers("parent", children, score_df, target_suffix)
+
+        for child_name, child_node in children.items():
+            # Format Markers
+            marker_str = ""
+            if child_name in markers:
+                top_genes = [
+                    f"{m[0]}" for m in markers[child_name]
+                    if gene_filter is None or gene_filter(m[0])
+                ]
+                marker_str = f" :: Markers: {', '.join(top_genes)}"
+
+            # ICLS info (if leaf)
+            icls_info = ""
+            if not child_node["children"]:
+                icls_list = child_node["icls_indices"]
+                icls_info = f" (icls {icls_list})"
+
+            print(f"{indent}├── {child_name}{icls_info}{marker_str}")
+
+            # Recursive Call
+            if child_node["children"]:
+                print_tree(child_node["children"], level_prefix=child_name, depth=depth + 1)
+
+        return markers
+
+    # Execute
+    markers = print_tree(tree_root)
+
+    # Build contexts dict
+    contexts = {mo.ctx.groupby: mo.ctx for mo in markers_list}
+
+    # Compute batch expression if batch_key provided
+    batch_expression = None
+    if batch_key is not None:
+        _use_raw = adata.raw is not None
+        batch_expression = {
+            mo.ctx.groupby: _compute_batch_expression(
+                adata, mo.ctx, batch_key, use_raw=_use_raw,
+            )
+            for mo in markers_list
+        }
+
+    return HierarchyRun(
+        levels=[str(g0), str(g1), str(g2)],
+        params={"min_cells_for_path": int(min_cells_for_path), "n_top_markers": int(n_top_markers)},
+        icls_full_dict=icls_full_dict,
+        icls_path_df=df_icls_path,
+        marker_rank_df=df_marker_rank,
+        icls_gene_presence_df=icls_gene_presence,
+        gene_freq_df=gene_freq.reset_index(),
+        score_df=score_df,
+        tree_root=tree_root,
+        icls_to_path=icls_to_path,
+        full_gene_lists=full_gene_lists,
+        contexts=contexts,
+        batch_expression=batch_expression,
+        batch_key=batch_key,
+        markers=markers,
+    )
