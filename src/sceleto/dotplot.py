@@ -127,9 +127,9 @@ def dotplot_size_legend(
 
     for i, f in enumerate(fracs):
         ax.scatter([i], [0.1], s=f * dot_scale, c="grey", edgecolors="none")
-        ax.text(i, -0.25, f"{int(f*100)}%", fontsize=fontsize, ha="center", va="top")
+        ax.text(i, -0.25, f"{int(f*100)}", fontsize=fontsize, ha="center", va="top")
 
-    ax.set_title("Fraction expressing", fontsize=fontsize, pad=10)
+    ax.set_title("Fraction\nexpressing (%)", fontsize=fontsize, pad=10)
 
     if save:
         plt.savefig(save, bbox_inches="tight", format="pdf", dpi=300)
@@ -351,9 +351,9 @@ def dotplot(
         leg_ax.set_ylim(-1.0, 1.0)
         for i, f in enumerate(legend_fracs):
             leg_ax.scatter([i], [0.2], s=f * dot_scale, c="grey", edgecolors="none")
-            leg_ax.text(i, -0.5, f"{int(f*100)}%", fontsize=fontsize,
+            leg_ax.text(i, -0.5, f"{int(f*100)}", fontsize=fontsize,
                         ha="center", va="top")
-        leg_ax.text((n_leg - 1) / 2, 1.0, "Fraction expressing",
+        leg_ax.text((n_leg - 1) / 2, 1.0, "Fraction\nexpressing (%)",
                     fontsize=fontsize, ha="center", va="bottom")
 
     if save:
