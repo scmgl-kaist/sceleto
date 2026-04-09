@@ -238,7 +238,8 @@ def _compute_batch_expression(adata, ctx, batch_key, use_raw=True):
     """Compute per-batch expression statistics for one resolution level."""
     from scipy import sparse
 
-    X = adata.raw.X if (use_raw and adata.raw is not None) else adata.X
+    from sceleto._expr import resolve_expression
+    X, _, _ = resolve_expression(adata)
     if not sparse.issparse(X):
         X = sparse.csr_matrix(X)
     else:

@@ -140,20 +140,13 @@ def _build_expression_context(
     dtype,
 ) -> MarkerContext:
     """Internal: compute expression summary matrices."""
-    if use_raw and adata.raw is None:
-        raise ValueError(
-            "adata.raw is None but use_raw=True. Set use_raw=False or populate adata.raw."
-        )
+    from sceleto._expr import resolve_expression
 
     groups = get_groups(adata, groupby, exclude=exclude)
     group_to_idx = {g: i for i, g in enumerate(groups)}
 
-    if use_raw:
-        X = adata.raw.X
-        genes = adata.raw.var_names.to_numpy()
-    else:
-        X = adata.X
-        genes = adata.var_names.to_numpy()
+    X, var_names, source = resolve_expression(adata)
+    genes = var_names.to_numpy()
 
     if not sparse.issparse(X):
         X = sparse.csr_matrix(X)

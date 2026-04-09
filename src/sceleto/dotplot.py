@@ -31,12 +31,8 @@ def _compute_group_stats(
     Returns (mean, frac_expr, groups, genes) where mean and frac_expr
     are arrays of shape (n_groups, n_genes).
     """
-    if use_raw and adata.raw is not None:
-        X = adata.raw.X
-        var_names = adata.raw.var_names
-    else:
-        X = adata.X
-        var_names = adata.var_names
+    from ._expr import resolve_expression
+    X, var_names, _ = resolve_expression(adata)
 
     if not sparse.issparse(X):
         X = sparse.csr_matrix(X)

@@ -42,7 +42,8 @@ def _compute_cluster_stats(
         ex = set(str(x) for x in exclude)
         groups = [g for g in groups if g not in ex]
 
-    X = adata.raw.X
+    from sceleto._expr import resolve_expression
+    X, _, _ = resolve_expression(adata)
     if not sparse.issparse(X):
         X = sparse.csr_matrix(X)
     else:
@@ -138,7 +139,9 @@ def _find_markers_impl(
     groups = np.array(sorted(mean_dt.keys()))
 
     markers: Dict[str, List[Tuple[str, float]]] = defaultdict(list)
-    gene_names = adata.raw.var_names
+    from sceleto._expr import resolve_expression
+    _, var_names, _ = resolve_expression(adata)
+    gene_names = var_names
 
     for gene_idx, gene in enumerate(gene_names):
         _, mean_arr, selected = _collect_gene_values(gene_idx, stats, groups, min_count)

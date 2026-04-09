@@ -37,12 +37,9 @@ def _compute_batch_group_mean(
     """
     from scipy import sparse
 
-    if use_raw and adata.raw is not None:
-        X = adata.raw.X
-        all_genes = adata.raw.var_names.to_numpy()
-    else:
-        X = adata.X
-        all_genes = adata.var_names.to_numpy()
+    from sceleto._expr import resolve_expression
+    X, var_names, _ = resolve_expression(adata)
+    all_genes = var_names.to_numpy()
 
     if not sparse.issparse(X):
         X = sparse.csr_matrix(X)
