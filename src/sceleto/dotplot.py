@@ -334,8 +334,15 @@ def dotplot(
         bbox = ax.get_position()
         leg_h = (leg_inches * 0.55) / new_h
         leg_y = actual_bottom_new - 0.04 - leg_h
-        leg_w = bbox.width * 0.6
-        leg_x = bbox.x0 + (bbox.width - leg_w) / 2
+
+        # Align legend width to first/last group dot positions
+        first_group_data = 0  # first group x in data coords
+        last_group_data = n_groups - 1  # last group x in data coords
+        trans = ax.transData + fig.transFigure.inverted()
+        x_left = trans.transform((first_group_data, 0))[0]
+        x_right = trans.transform((last_group_data, 0))[0]
+        leg_x = x_left
+        leg_w = x_right - x_left
 
         leg_ax = fig.add_axes([leg_x, leg_y, leg_w, leg_h])
         leg_ax.set_axis_off()
