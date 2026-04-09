@@ -119,17 +119,17 @@ def dotplot_size_legend(
     fig, ax
     """
     dot_scale = figscale * 400 * 0.5
-    fig, ax = plt.subplots(figsize=(1.5, 0.4 * len(fracs) + 0.5))
-    ax.set_xlim(0, 1)
-    ax.set_ylim(-0.5, len(fracs) - 0.5)
+    n = len(fracs)
+    fig, ax = plt.subplots(figsize=(0.9 * n + 1.5, 0.8))
+    ax.set_xlim(-0.5, n - 0.5)
+    ax.set_ylim(-0.5, 0.5)
     ax.set_axis_off()
 
     for i, f in enumerate(fracs):
-        y = len(fracs) - 1 - i
-        ax.scatter([0.3], [y], s=f * dot_scale, c="grey", edgecolors="none")
-        ax.text(0.55, y, f"{int(f*100)}%", fontsize=fontsize, va="center")
+        ax.scatter([i], [0.1], s=f * dot_scale, c="grey", edgecolors="none")
+        ax.text(i, -0.25, f"{int(f*100)}%", fontsize=fontsize, ha="center", va="top")
 
-    ax.set_title("Fraction\nexpressing", fontsize=fontsize, fontweight="bold", pad=8)
+    ax.set_title("Fraction expressing", fontsize=fontsize, fontweight="bold", pad=10)
 
     if save:
         plt.savefig(save, bbox_inches="tight", format="pdf", dpi=300)
