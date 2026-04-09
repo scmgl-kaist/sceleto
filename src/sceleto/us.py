@@ -14,11 +14,7 @@ def us(adata,gene,groups=None, show=False, exclude =None,figsize=None,**kwargs):
     figsize:float,     NOT REQUIRED | Figure size.
     """
     import scanpy as sc
-    from matplotlib import rcParams
 
-    orig_figsize = list(rcParams['figure.figsize'])
-    if figsize:
-        rcParams['figure.figsize'] = figsize
     if isinstance(gene, str) and ',' in gene:
         gene = gene.split(',')
     if groups:
@@ -29,4 +25,3 @@ def us(adata,gene,groups=None, show=False, exclude =None,figsize=None,**kwargs):
             sc.pl.umap(adata, color=gene, color_map='OrRd', groups=groups, show=show, **kwargs)
         else:
             sc.pl.umap(adata, color=gene, color_map='OrRd', show=show, **kwargs)
-    rcParams['figure.figsize'] = orig_figsize
