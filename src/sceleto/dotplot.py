@@ -335,25 +335,22 @@ def dotplot(
         leg_h = (leg_inches * 0.55) / new_h
         leg_y = actual_bottom_new - 0.04 - leg_h
 
-        # Align legend width to first/last group dot positions
-        first_group_data = 0  # first group x in data coords
-        last_group_data = n_groups - 1  # last group x in data coords
-        trans = ax.transData + fig.transFigure.inverted()
-        x_left = trans.transform((first_group_data, 0))[0]
-        x_right = trans.transform((last_group_data, 0))[0]
-        leg_x = x_left
-        leg_w = x_right - x_left
-
-        leg_ax = fig.add_axes([leg_x, leg_y, leg_w, leg_h])
+        # Place size legend dots aligned to first/last group x positions
+        # Use the dotplot axes itself to draw legend dots via figure transform
+        bbox = ax.get_position()
+        leg_ax = fig.add_axes([bbox.x0, leg_y, bbox.width, leg_h])
         leg_ax.set_axis_off()
+
+        # Map legend dot positions to dotplot group x coordinates
         n_leg = len(legend_fracs)
-        leg_ax.set_xlim(-0.8, n_leg - 0.2)
+        leg_x_positions = np.linspace(0, n_groups - 1, n_leg)
+        leg_ax.set_xlim(ax.get_xlim())
         leg_ax.set_ylim(-1.0, 1.0)
-        for i, f in enumerate(legend_fracs):
-            leg_ax.scatter([i], [0.2], s=f * dot_scale, c="grey", edgecolors="none")
-            leg_ax.text(i, -0.5, f"{int(f*100)}", fontsize=fontsize,
+        for xp, f in zip(leg_x_positions, legend_fracs):
+            leg_ax.scatter([xp], [0.2], s=f * dot_scale, c="grey", edgecolors="none")
+            leg_ax.text(xp, -0.5, f"{int(f*100)}", fontsize=fontsize,
                         ha="center", va="top")
-        leg_ax.text((n_leg - 1) / 2, 1.0, "Fraction\nexpressing (%)",
+        leg_ax.text((n_groups - 1) / 2, 1.0, "Fraction\nexpressing (%)",
                     fontsize=fontsize, ha="center", va="bottom")
 
     if save:
