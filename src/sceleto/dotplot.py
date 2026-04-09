@@ -129,7 +129,7 @@ def dotplot_size_legend(
         ax.scatter([i], [0.1], s=f * dot_scale, c="grey", edgecolors="none")
         ax.text(i, -0.25, f"{int(f*100)}%", fontsize=fontsize, ha="center", va="top")
 
-    ax.set_title("Fraction expressing", fontsize=fontsize, fontweight="bold", pad=10)
+    ax.set_title("Fraction expressing", fontsize=fontsize, pad=10)
 
     if save:
         plt.savefig(save, bbox_inches="tight", format="pdf", dpi=300)
@@ -306,8 +306,8 @@ def dotplot(
     cbar_size = "2%" if transpose else "5%"
     cax = divider.append_axes("right", size=cbar_size, pad=0.05)
     cbar = plt.colorbar(sc, cax=cax)
-    cbar.set_label("Mean expr\n(normalized)", fontsize=fontsize - 1)
-    cbar.ax.tick_params(labelsize=fontsize - 2)
+    cbar.set_label("Mean expr\n(normalized)", fontsize=fontsize)
+    cbar.ax.tick_params(labelsize=fontsize)
 
     # Size legend — extend figure height and add below dotplot
     if size_legend:
@@ -335,10 +335,9 @@ def dotplot(
         leg_ax.set_ylim(-0.6, 0.5)
         for i, f in enumerate(legend_fracs):
             leg_ax.scatter([i], [0.1], s=f * dot_scale, c="grey", edgecolors="none")
-            leg_ax.text(i, -0.35, f"{int(f*100)}%", fontsize=fontsize - 1,
+            leg_ax.text(i, -0.35, f"{int(f*100)}%", fontsize=fontsize,
                         ha="center", va="top")
-        leg_ax.set_title("Fraction expressing", fontsize=fontsize - 1,
-                         fontweight="bold", pad=4)
+        leg_ax.set_title("Fraction expressing", fontsize=fontsize, pad=4)
 
     if save:
         plt.savefig(save, bbox_inches="tight", format="pdf", dpi=300)
