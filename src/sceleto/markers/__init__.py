@@ -40,8 +40,17 @@ def hierarchy(adata, marker_runs, **kwargs) -> HierarchyRun:
     return _hierarchy(adata, marker_runs, **kwargs)
 
 
+def sweep_fc(adata, groupby: str, **kwargs):
+    """Sweep FC thresholds to help determine thres_fc.
+
+    See :func:`sceleto.markers.graph.sweep_fc_threshold` for full docs.
+    """
+    from .graph import sweep_fc_threshold
+    return sweep_fc_threshold(adata, groupby, **kwargs)
+
+
 def __dir__():
-    return ["simple", "classic", "marker", "hierarchy", "GeneFilter"]
+    return ["simple", "classic", "marker", "hierarchy", "sweep_fc", "GeneFilter"]
 
 
-__all__ = ["simple", "classic", "marker", "hierarchy", "GeneFilter"]
+__all__ = ["simple", "classic", "marker", "hierarchy", "sweep_fc", "GeneFilter"]
