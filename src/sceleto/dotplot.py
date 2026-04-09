@@ -339,8 +339,6 @@ def dotplot(
         cbar.set_label("Mean expr\n(normalized)", fontsize=fontsize)
         cbar.ax.tick_params(labelsize=fontsize)
 
-    fig.set_dpi(150)
-
     if save:
         plt.savefig(save, bbox_inches="tight", format="pdf", dpi=300)
     if show:
