@@ -264,26 +264,15 @@ def dotplot(
 
     # figure — figscale controls both spacing and dot size
     dot_scale = figscale * 400
-    legend_w = 2.0  # fixed legend width in inches
 
     if transpose:
-        plot_w = len(gene_list) * figscale * 0.45
-        plot_h = n_groups * figscale * 0.55
+        fw = len(gene_list) * figscale * 0.45
+        fh = n_groups * figscale * 0.55
     else:
-        plot_w = n_groups * figscale * 0.65
-        plot_h = len(gene_list) * figscale * 0.55
+        fw = n_groups * figscale * 0.65
+        fh = len(gene_list) * figscale * 0.55
 
-    if size_legend:
-        total_w = plot_w + legend_w
-        fig = plt.figure(figsize=(total_w, plot_h))
-        gs = fig.add_gridspec(1, 2, width_ratios=[plot_w, legend_w],
-                              wspace=0.3)
-        ax = fig.add_subplot(gs[0])
-        # Legend area: 3 rows — spacer / size legend / colorbar
-        legend_gs = gs[1].subgridspec(3, 1, height_ratios=[1, 0.4, 0.3],
-                                       hspace=1.0)
-    else:
-        fig, ax = plt.subplots(figsize=(plot_w, plot_h))
+    fig, ax = plt.subplots(figsize=(fw, fh))
 
     if transpose:
         sc = ax.scatter(
@@ -311,33 +300,54 @@ def dotplot(
         ax.set_ylim(min(pos_major) - 0.5, max(pos_major) + 0.5)
     ax.grid(False)
 
-    if size_legend:
-        # Size legend (top-right area)
-        legend_fracs = [0.25, 0.50, 0.75, 1.00]
-        size_ax = fig.add_subplot(legend_gs[1])
-        size_ax.set_axis_off()
-        n_leg = len(legend_fracs)
-        size_ax.set_xlim(-0.8, n_leg - 0.2)
-        size_ax.set_ylim(-1.2, 1.2)
-        for i, f in enumerate(legend_fracs):
-            size_ax.scatter([i], [0.2], s=f * dot_scale, c="grey", edgecolors="none")
-            size_ax.text(i, -0.7, f"{int(f*100)}%", fontsize=fontsize,
-                         ha="center", va="top")
-        size_ax.set_title("Fraction expressing", fontsize=fontsize, pad=6)
+    # Colorbar — thin vertical bar on the right (matching dotplot height)
+    from mpl_toolkits.axes_grid1 import make_axes_locatable
+    divider = make_axes_locatable(ax)
+    cbar_size = "2%" if transpose else "5%"
+    cax = divider.append_axes("right", size=cbar_size, pad=0.05)
+    cbar = plt.colorbar(sc, cax=cax)
+    cbar.set_label("Mean expr\n(normalized)", fontsize=fontsize)
+    cbar.ax.tick_params(labelsize=fontsize)
 
-        # Colorbar (bottom-right area)
-        cbar_ax = fig.add_subplot(legend_gs[2])
-        cbar = plt.colorbar(sc, cax=cbar_ax, orientation="horizontal")
-        cbar.set_label("Mean expr (normalized)", fontsize=fontsize)
-        cbar.ax.tick_params(labelsize=fontsize)
-    else:
-        from mpl_toolkits.axes_grid1 import make_axes_locatable
-        divider = make_axes_locatable(ax)
-        cbar_size = "2%" if transpose else "5%"
-        cax = divider.append_axes("right", size=cbar_size, pad=0.05)
-        cbar = plt.colorbar(sc, cax=cax)
-        cbar.set_label("Mean expr\n(normalized)", fontsize=fontsize)
-        cbar.ax.tick_params(labelsize=fontsize)
+    # Size legend — below the dotplot
+    if size_legend:
+        legend_fracs = [0.25, 0.50, 0.75, 1.00]
+        leg_inches = 0.8
+
+        fig.canvas.draw()
+        renderer = fig.canvas.get_renderer()
+        ax_tight = ax.get_tightbbox(renderer).transformed(fig.transFigure.inverted())
+        actual_bottom = ax_tight.y0
+
+        orig_w, orig_h = fig.get_size_inches()
+        new_h = orig_h + leg_inches
+        fig.set_size_inches(orig_w, new_h)
+
+        for a in fig.axes:
+            pos = a.get_position()
+            a.set_position([pos.x0,
+                            (pos.y0 * orig_h + leg_inches) / new_h,
+                            pos.width,
+                            pos.height * orig_h / new_h])
+
+        actual_bottom_new = (actual_bottom * orig_h + leg_inches) / new_h
+        bbox = ax.get_position()
+        leg_h = (leg_inches * 0.55) / new_h
+        leg_y = actual_bottom_new - 0.01 - leg_h
+        leg_w = bbox.width * 0.6
+        leg_x = bbox.x0 + (bbox.width - leg_w) / 2
+
+        leg_ax = fig.add_axes([leg_x, leg_y, leg_w, leg_h])
+        leg_ax.set_axis_off()
+        n_leg = len(legend_fracs)
+        leg_ax.set_xlim(-0.8, n_leg - 0.2)
+        leg_ax.set_ylim(-1.0, 1.0)
+        for i, f in enumerate(legend_fracs):
+            leg_ax.scatter([i], [0.2], s=f * dot_scale, c="grey", edgecolors="none")
+            leg_ax.text(i, -0.5, f"{int(f*100)}%", fontsize=fontsize,
+                        ha="center", va="top")
+        leg_ax.text((n_leg - 1) / 2, 1.0, "Fraction expressing",
+                    fontsize=fontsize, ha="center", va="bottom")
 
     if save:
         plt.savefig(save, bbox_inches="tight", format="pdf", dpi=300)
