@@ -152,6 +152,7 @@ def dotplot(
     figscale: float = 0.25,
     min_frac: float = 0.01,
     cmap: str = "OrRd",
+    size_legend: bool = True,
     save: Optional[str] = None,
     show: bool = True,
 ):
@@ -307,6 +308,37 @@ def dotplot(
     cbar = plt.colorbar(sc, cax=cax)
     cbar.set_label("Mean expr\n(normalized)", fontsize=fontsize - 1)
     cbar.ax.tick_params(labelsize=fontsize - 2)
+
+    # Size legend — extend figure height and add below dotplot
+    if size_legend:
+        legend_fracs = [0.25, 0.50, 0.75, 1.00]
+        leg_inches = 0.7  # fixed height for legend area
+
+        # Get current figure size and extend height
+        orig_w, orig_h = fig.get_size_inches()
+        new_h = orig_h + leg_inches
+        fig.set_size_inches(orig_w, new_h)
+
+        # Shift existing axes up to make room at the bottom
+        ratio = orig_h / new_h
+        for a in fig.axes:
+            pos = a.get_position()
+            a.set_position([pos.x0, pos.y0 * ratio + (1 - ratio),
+                            pos.width, pos.height * ratio])
+
+        # Add legend axes at the bottom
+        bbox = ax.get_position()
+        leg_ax = fig.add_axes([bbox.x0, 0.01, bbox.width * 0.85, (1 - ratio) * 0.6])
+        leg_ax.set_axis_off()
+        n_leg = len(legend_fracs)
+        leg_ax.set_xlim(-0.7, n_leg - 0.3)
+        leg_ax.set_ylim(-0.6, 0.5)
+        for i, f in enumerate(legend_fracs):
+            leg_ax.scatter([i], [0.1], s=f * dot_scale, c="grey", edgecolors="none")
+            leg_ax.text(i, -0.35, f"{int(f*100)}%", fontsize=fontsize - 1,
+                        ha="center", va="top")
+        leg_ax.set_title("Fraction expressing", fontsize=fontsize - 1,
+                         fontweight="bold", pad=4)
 
     if save:
         plt.savefig(save, bbox_inches="tight", format="pdf", dpi=300)
