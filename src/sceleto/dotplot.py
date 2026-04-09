@@ -264,14 +264,26 @@ def dotplot(
 
     # figure — figscale controls both spacing and dot size
     dot_scale = figscale * 400
-    if transpose:
-        fw = len(gene_list) * figscale * 0.45
-        fh = n_groups * figscale * 0.55
-    else:
-        fw = n_groups * figscale * 0.65
-        fh = len(gene_list) * figscale * 0.55
+    legend_w = 2.0  # fixed legend width in inches
 
-    fig, ax = plt.subplots(figsize=(fw, fh))
+    if transpose:
+        plot_w = len(gene_list) * figscale * 0.45
+        plot_h = n_groups * figscale * 0.55
+    else:
+        plot_w = n_groups * figscale * 0.65
+        plot_h = len(gene_list) * figscale * 0.55
+
+    if size_legend:
+        total_w = plot_w + legend_w
+        fig = plt.figure(figsize=(total_w, plot_h))
+        gs = fig.add_gridspec(1, 2, width_ratios=[plot_w, legend_w],
+                              wspace=0.3)
+        ax = fig.add_subplot(gs[0])
+        # Legend area: 3 rows — spacer / size legend / colorbar
+        legend_gs = gs[1].subgridspec(3, 1, height_ratios=[1, 0.4, 0.3],
+                                       hspace=1.0)
+    else:
+        fig, ax = plt.subplots(figsize=(plot_w, plot_h))
 
     if transpose:
         sc = ax.scatter(
@@ -299,45 +311,33 @@ def dotplot(
         ax.set_ylim(min(pos_major) - 0.5, max(pos_major) + 0.5)
     ax.grid(False)
 
-    from mpl_toolkits.axes_grid1 import make_axes_locatable
-    divider = make_axes_locatable(ax)
-
-    # Colorbar
-    cbar_size = "2%" if transpose else "5%"
-    cax = divider.append_axes("right", size=cbar_size, pad=0.05)
-    cbar = plt.colorbar(sc, cax=cax)
-    cbar.set_label("Mean expr\n(normalized)", fontsize=fontsize)
-    cbar.ax.tick_params(labelsize=fontsize)
-
-    # Size legend — extend figure height and add below dotplot
     if size_legend:
+        # Size legend (top-right area)
         legend_fracs = [0.25, 0.50, 0.75, 1.00]
-        leg_inches = 0.7  # fixed height for legend area
-
-        # Get current figure size and extend height
-        orig_w, orig_h = fig.get_size_inches()
-        new_h = orig_h + leg_inches
-        fig.set_size_inches(orig_w, new_h)
-
-        # Shift existing axes up to make room at the bottom
-        ratio = orig_h / new_h
-        for a in fig.axes:
-            pos = a.get_position()
-            a.set_position([pos.x0, pos.y0 * ratio + (1 - ratio),
-                            pos.width, pos.height * ratio])
-
-        # Add legend axes at the bottom
-        bbox = ax.get_position()
-        leg_ax = fig.add_axes([bbox.x0, 0.01, bbox.width * 0.85, (1 - ratio) * 0.6])
-        leg_ax.set_axis_off()
+        size_ax = fig.add_subplot(legend_gs[1])
+        size_ax.set_axis_off()
         n_leg = len(legend_fracs)
-        leg_ax.set_xlim(-0.7, n_leg - 0.3)
-        leg_ax.set_ylim(-0.6, 0.5)
+        size_ax.set_xlim(-0.8, n_leg - 0.2)
+        size_ax.set_ylim(-1.2, 1.2)
         for i, f in enumerate(legend_fracs):
-            leg_ax.scatter([i], [0.1], s=f * dot_scale, c="grey", edgecolors="none")
-            leg_ax.text(i, -0.35, f"{int(f*100)}%", fontsize=fontsize,
-                        ha="center", va="top")
-        leg_ax.set_title("Fraction expressing", fontsize=fontsize, pad=4)
+            size_ax.scatter([i], [0.2], s=f * dot_scale, c="grey", edgecolors="none")
+            size_ax.text(i, -0.7, f"{int(f*100)}%", fontsize=fontsize,
+                         ha="center", va="top")
+        size_ax.set_title("Fraction expressing", fontsize=fontsize, pad=6)
+
+        # Colorbar (bottom-right area)
+        cbar_ax = fig.add_subplot(legend_gs[2])
+        cbar = plt.colorbar(sc, cax=cbar_ax, orientation="horizontal")
+        cbar.set_label("Mean expr (normalized)", fontsize=fontsize)
+        cbar.ax.tick_params(labelsize=fontsize)
+    else:
+        from mpl_toolkits.axes_grid1 import make_axes_locatable
+        divider = make_axes_locatable(ax)
+        cbar_size = "2%" if transpose else "5%"
+        cax = divider.append_axes("right", size=cbar_size, pad=0.05)
+        cbar = plt.colorbar(sc, cax=cax)
+        cbar.set_label("Mean expr\n(normalized)", fontsize=fontsize)
+        cbar.ax.tick_params(labelsize=fontsize)
 
     if save:
         plt.savefig(save, bbox_inches="tight", format="pdf", dpi=300)
