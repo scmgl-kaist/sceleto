@@ -164,16 +164,10 @@ def run_marker_graph(
     batch_fc_threshold: Optional[float] = None,
 ) -> MarkerGraphRun:
     """One-step wrapper: context -> edge metrics -> labels -> viz -> specific marker discovery"""
-    from . import (
-        build_context,
-        compute_fc_delta,
-        edge_gene_df_to_matrices,
-        label_levels,
-        labels_to_note_df,
-        build_graph_and_pos_from_ctx,
-        build_gene_edge_fc_from_edge_gene_df,
-        GraphVizContext,
-    )
+    from ._context import build_context
+    from ._metrics import compute_fc_delta, edge_gene_df_to_matrices, build_gene_edge_fc_from_edge_gene_df
+    from ._labels import label_levels, labels_to_note_df
+    from ._viz import GraphVizContext, build_graph_and_pos_from_ctx
     from ._local import (
         build_local_marker_inputs,
         weight_local_prioritized,

@@ -94,6 +94,55 @@ def _resolve_genes(
     return list(genes)
 
 
+def dotplot_size_legend(
+    figscale: float = 0.25,
+    fracs: Sequence[float] = (0.25, 0.50, 0.75, 1.00),
+    fontsize: int = 10,
+    save: Optional[str] = None,
+    show: bool = True,
+):
+    """Standalone size legend for dotplot (fraction expressing).
+
+    Use this alongside dotplot() to show what dot sizes mean.
+
+    Parameters
+    ----------
+    figscale
+        Should match the figscale used in dotplot().
+    fracs
+        Fraction values to show in the legend.
+    fontsize
+        Font size for labels.
+    save
+        Path to save figure as PDF.
+    show
+        Whether to call plt.show().
+
+    Returns
+    -------
+    fig, ax
+    """
+    dot_scale = figscale * 400 * 0.5
+    fig, ax = plt.subplots(figsize=(1.5, 0.4 * len(fracs) + 0.5))
+    ax.set_xlim(0, 1)
+    ax.set_ylim(-0.5, len(fracs) - 0.5)
+    ax.set_axis_off()
+
+    for i, f in enumerate(fracs):
+        y = len(fracs) - 1 - i
+        ax.scatter([0.3], [y], s=f * dot_scale, c="grey", edgecolors="none")
+        ax.text(0.55, y, f"{int(f*100)}%", fontsize=fontsize, va="center")
+
+    ax.set_title("Fraction\nexpressing", fontsize=fontsize, fontweight="bold", pad=8)
+
+    if save:
+        plt.savefig(save, bbox_inches="tight", format="pdf", dpi=300)
+    if show:
+        plt.show()
+
+    return fig, ax
+
+
 def dotplot(
     adata,
     genes: Union[Sequence[str], Dict[str, list]],
@@ -216,20 +265,21 @@ def dotplot(
     sizes = np.array(sizes)
     colors = np.array(colors)
 
-    # figure
+    # figure — figscale controls both spacing and dot size
+    dot_scale = figscale * 400
     if transpose:
-        fw = len(gene_list) * figscale * 0.7
-        fh = n_groups * figscale * 0.8
+        fw = len(gene_list) * figscale * 0.45
+        fh = n_groups * figscale * 0.55
     else:
-        fw = n_groups * figscale
-        fh = len(gene_list) * figscale * 0.9
+        fw = n_groups * figscale * 0.65
+        fh = len(gene_list) * figscale * 0.55
 
     fig, ax = plt.subplots(figsize=(fw, fh))
 
     if transpose:
         sc = ax.scatter(
             pos_major, pos_minor,
-            s=sizes * figscale * 400, c=colors, cmap=cmap, vmax=1.0,
+            s=sizes * dot_scale, c=colors, cmap=cmap, vmax=1.0,
         )
         ax.xaxis.tick_top()
         ax.set_xticks(ticks_major)
@@ -239,7 +289,7 @@ def dotplot(
     else:
         sc = ax.scatter(
             pos_minor, pos_major,
-            s=sizes * figscale * 400, c=colors, cmap=cmap,
+            s=sizes * dot_scale, c=colors, cmap=cmap, vmax=1.0,
         )
         ax.set_xticks(range(n_groups))
         ax.set_xticklabels(all_groups, rotation=90, fontsize=fontsize)
@@ -254,10 +304,13 @@ def dotplot(
 
     from mpl_toolkits.axes_grid1 import make_axes_locatable
     divider = make_axes_locatable(ax)
+
+    # Colorbar
     cbar_size = "2%" if transpose else "5%"
     cax = divider.append_axes("right", size=cbar_size, pad=0.05)
     cbar = plt.colorbar(sc, cax=cax)
-    cbar.ax.tick_params(labelsize=8)
+    cbar.set_label("Mean expr\n(normalized)", fontsize=fontsize - 1)
+    cbar.ax.tick_params(labelsize=fontsize - 2)
 
     if save:
         plt.savefig(save, bbox_inches="tight", format="pdf", dpi=300)
