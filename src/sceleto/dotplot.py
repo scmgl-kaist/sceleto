@@ -333,7 +333,7 @@ def dotplot(
         actual_bottom_new = (actual_bottom * orig_h + leg_inches) / new_h
         bbox = ax.get_position()
         leg_h = (leg_inches * 0.55) / new_h
-        leg_y = actual_bottom_new - 0.01 - leg_h
+        leg_y = actual_bottom_new - 0.04 - leg_h
         leg_w = bbox.width * 0.6
         leg_x = bbox.x0 + (bbox.width - leg_w) / 2
 
