@@ -16,16 +16,17 @@ def us(adata,gene,groups=None, show=False, exclude =None,figsize=None,**kwargs):
     import scanpy as sc
     from matplotlib import rcParams
 
+    orig_figsize = list(rcParams['figure.figsize'])
     if figsize:
         rcParams['figure.figsize'] = figsize
-    if ',' in gene:
+    if isinstance(gene, str) and ',' in gene:
         gene = gene.split(',')
     if groups:
-        sc.pl.umap(adata,color=gene,color_map='OrRd',groups=groups, show=show, **kwargs)
+        sc.pl.umap(adata, color=gene, color_map='OrRd', groups=groups, show=show, **kwargs)
     else:
-        if exclude: # list to not show
+        if exclude:
             groups = [x for x in set(adata.obs[gene]) if x not in exclude]
-            sc.pl.umap(adata,color=gene,color_map='OrRd',groups=groups, show=show, **kwargs)
+            sc.pl.umap(adata, color=gene, color_map='OrRd', groups=groups, show=show, **kwargs)
         else:
-            sc.pl.umap(adata,color=gene,color_map='OrRd',show=show, **kwargs)
-    rcParams['figure.figsize'] = [5,5]
+            sc.pl.umap(adata, color=gene, color_map='OrRd', show=show, **kwargs)
+    rcParams['figure.figsize'] = orig_figsize
