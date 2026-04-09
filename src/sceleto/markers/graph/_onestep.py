@@ -10,6 +10,7 @@ from .._gene_filter import GeneFilter
 
 @dataclass
 class MarkerGraphRun:
+
     """Container for one-step marker-graph pipeline results.
 
     Notes
@@ -39,6 +40,17 @@ class MarkerGraphRun:
     batch_key: Optional[str] = None
     batch_edge_fc_df: Optional[pd.DataFrame] = None
     batch_stats_df: Optional[pd.DataFrame] = None
+
+    # FC threshold sweep (None if thres_fc was not "auto")
+    sweep_df: Optional[pd.DataFrame] = None
+    suggested_thres_fc: Optional[float] = None
+
+    def plot_fc_threshold(self, **kwargs):
+        """Plot FC threshold sweep results. Only available if thres_fc="auto" was used."""
+        if self.sweep_df is None:
+            raise ValueError("No sweep data. Re-run with thres_fc='auto'.")
+        from ._threshold import plot_fc_threshold
+        return plot_fc_threshold(self.sweep_df, suggested=self.suggested_thres_fc, **kwargs)
 
     def plot_gene_edges_fc(self, gene: str, **kwargs):
         return self.viz.plot_gene_edges_fc(gene, **kwargs)
@@ -128,7 +140,7 @@ def run_marker_graph(
     adata: Any,
     *,
     groupby: str,
-    thres_fc: float,
+    thres_fc: Union[float, str] = "auto",
     # Specific ranking params
     specific_A: float = 1.0,
     specific_B: float = 0.5,
@@ -204,6 +216,20 @@ def run_marker_graph(
 
         # Close any figures created internally
         plt.close("all")
+
+    # --- Auto threshold ---
+    sweep_df = None
+    suggested_thres_fc = None
+
+    if isinstance(thres_fc, str) and thres_fc == "auto":
+        from ._threshold import sweep_fc_threshold, suggest_fc_threshold
+        sweep_df = sweep_fc_threshold(adata, groupby, use_raw=use_raw,
+                                       k=k, exclude=exclude,
+                                       min_cells_per_group=min_cells_per_group,
+                                       min_expr_cells_per_gene=min_expr_cells_per_gene)
+        suggested_thres_fc = suggest_fc_threshold(sweep_df)
+        thres_fc = suggested_thres_fc
+        print(f"  Auto thres_fc: {thres_fc:.2f}")
 
     if fc_cutoff is None:
         fc_cutoff = thres_fc
@@ -343,4 +369,6 @@ def run_marker_graph(
         batch_key=batch_key,
         batch_edge_fc_df=batch_edge_fc_df,
         batch_stats_df=batch_stats_df,
+        sweep_df=sweep_df,
+        suggested_thres_fc=suggested_thres_fc,
     )

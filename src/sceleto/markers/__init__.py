@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import Any
+from typing import Any, Union
 
 from ._simple import MarkersSimple
 from ._gene_filter import GeneFilter
@@ -21,7 +21,7 @@ def marker(
     groupby: str,
     *,
     k: int = 5,
-    thres_fc: float = 3.0,
+    thres_fc: Union[float, str] = "auto",
     **kwargs: Any,
 ):
     """Graph-based marker workflow (one-word entry point)."""
