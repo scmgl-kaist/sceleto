@@ -118,7 +118,7 @@ def dotplot_size_legend(
     -------
     fig, ax
     """
-    dot_scale = figscale * 400 * 0.5
+    dot_scale = figscale * 400
     n = len(fracs)
     fig, ax = plt.subplots(figsize=(0.9 * n + 1.5, 0.8))
     ax.set_xlim(-0.5, n - 0.5)
