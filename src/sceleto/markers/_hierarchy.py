@@ -78,20 +78,32 @@ class HierarchyRun:
             index=union,
         ).sort_values(leiden_list, ascending=False).T
 
+        if return_genes:
+            return union
+
+        from matplotlib.patches import Patch
+
         if figsize is None:
             figsize = (len(union) * 0.4, 2)
 
-        plt.figure(figsize=figsize)
+        fig, ax = plt.subplots(figsize=figsize)
+        cmap = plt.get_cmap("Blues")
         sns.heatmap(
-            df, cmap="Blues", linewidths=0.5, linecolor="black",
-            cbar=False, xticklabels=True,
+            df, cmap=cmap, linewidths=0.5, linecolor="black",
+            cbar=False, xticklabels=True, ax=ax,
         )
-        plt.title(f"Marker genes for path {icls}")
-        plt.xlabel("")
-        plt.show()
+        ax.set_title(f"Marker genes for path {icls}")
+        ax.set_xlabel("")
 
-        if return_genes:
-            return union
+        legend_handles = [
+            Patch(facecolor=cmap(1.0), edgecolor="black", label="in top-N markers"),
+            Patch(facecolor=cmap(0.0), edgecolor="black", label="not in top-N markers"),
+        ]
+        ax.legend(
+            handles=legend_handles, loc="upper left",
+            bbox_to_anchor=(1.0, 1.0), fontsize=7, frameon=False,
+        )
+        return fig
 
     def compare_markers_batch(
         self,
