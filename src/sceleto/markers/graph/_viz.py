@@ -204,6 +204,8 @@ class GraphVizContext:
         background_edge_alpha: float = 0.25,
         edge_width: float = 1.8,
         cmap: str = "Greys",
+        node_edgecolor: Optional[str] = None,
+        node_linewidth: float = 0.0,
         figsize: Tuple[float, float] = (6, 6),
         ax=None,
         title: Optional[str] = None,
@@ -239,7 +241,8 @@ class GraphVizContext:
             cmap=cmap,
             vmin=vmin,
             vmax=vmax,
-            linewidths=0.0,
+            linewidths=node_linewidth,
+            edgecolors=node_edgecolor if node_edgecolor is not None else "none",
             ax=ax,
         )
         _draw_node_labels(ax, self.pos_dict, fontsize=self.label_fontsize)
