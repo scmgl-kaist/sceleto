@@ -15,6 +15,7 @@ class BatchExpression:
 
     mean: np.ndarray  # (n_groups, n_batches, n_genes)
     frac_expr: np.ndarray  # (n_groups, n_batches, n_genes)
+    n_cells: np.ndarray  # (n_groups, n_batches) — cells per group/batch
     groups: List[str]
     batches: List[str]
     genes: np.ndarray
@@ -99,11 +100,23 @@ class HierarchyRun:
         figsize=None,
         gene_filter: Optional[GeneFilter] = None,
         return_genes: bool = False,
+        cap_percentile: float = 95.0,
     ):
-        """Visualize top-N marker overlap with per-batch expression strips."""
+        """Visualize top-N marker overlap with per-batch expression strips.
+
+        Each strip in a (level, gene) cell encodes one batch:
+
+          - grey  : batch has no cells in this cluster (no data)
+          - white : batch has cells but mean expression is 0
+          - red   : colored by mean / global_cap, clipped to [0, 1]
+
+        The global cap is the ``cap_percentile``-th percentile of all positive
+        active-batch means in the displayed cells, so a single outlier batch
+        does not dominate the scale and cross-cell colors stay comparable.
+        """
         import matplotlib.pyplot as plt
         import matplotlib.colors as mcolors
-        from matplotlib.patches import Rectangle
+        from matplotlib.patches import Rectangle, Patch
 
         if self.batch_expression is None:
             raise ValueError(
@@ -132,8 +145,9 @@ class HierarchyRun:
         n_rows = len(leiden_list)
         n_cols = len(union)
 
-        batch_vals, gene_max = _collect_batch_values(
+        batch_data, global_cap = _collect_batch_values(
             leiden_list, union, self.batch_expression,
+            cap_percentile=cap_percentile,
         )
         n_batches = len(next(iter(self.batch_expression.values())).batches)
 
@@ -142,6 +156,7 @@ class HierarchyRun:
 
         fig, ax = plt.subplots(figsize=figsize)
         cmap = plt.cm.Reds
+        grey_color = "#cccccc"
         cell_w, cell_h = 1.0, 1.0
         strip_w = cell_w / n_batches
 
@@ -149,16 +164,23 @@ class HierarchyRun:
             y = n_rows - 1 - i
             for j, gene in enumerate(union):
                 if gene in sets[i]:
-                    vals = batch_vals[i][j]
-                    gmax = gene_max[j]
+                    means_sorted, active_sorted = batch_data[i][j]
                     for b in range(n_batches):
-                        norm_val = (vals[b] / gmax) if gmax > 0 else 0.0
-                        rect = Rectangle(
+                        if not active_sorted[b]:
+                            facecolor = grey_color
+                        elif means_sorted[b] == 0:
+                            facecolor = "white"
+                        else:
+                            if global_cap > 0:
+                                norm_val = min(means_sorted[b] / global_cap, 1.0)
+                            else:
+                                norm_val = 0.0
+                            facecolor = cmap(norm_val)
+                        ax.add_patch(Rectangle(
                             (j * cell_w + b * strip_w, y * cell_h),
                             strip_w, cell_h,
-                            facecolor=cmap(norm_val), edgecolor="none",
-                        )
-                        ax.add_patch(rect)
+                            facecolor=facecolor, edgecolor="none",
+                        ))
                 ax.add_patch(Rectangle(
                     (j * cell_w, y * cell_h), cell_w, cell_h,
                     facecolor="none", edgecolor="black", linewidth=0.5,
@@ -173,11 +195,20 @@ class HierarchyRun:
         ax.set_title(f"Marker genes for path {icls} (per-batch)")
 
         sm = plt.cm.ScalarMappable(
-            cmap=cmap, norm=mcolors.Normalize(vmin=0, vmax=1),
+            cmap=cmap, norm=mcolors.Normalize(vmin=0, vmax=global_cap or 1.0),
         )
         sm.set_array([])
         cbar = fig.colorbar(sm, ax=ax, fraction=0.02, pad=0.02)
-        cbar.set_label("Normalized\nmean expression")
+        cbar.set_label(f"Mean expression\n(cap = {cap_percentile:.0f}p)")
+
+        legend_handles = [
+            Patch(facecolor=grey_color, edgecolor="black", label="not in cluster"),
+            Patch(facecolor="white", edgecolor="black", label="zero expression"),
+        ]
+        ax.legend(
+            handles=legend_handles, loc="upper left",
+            bbox_to_anchor=(1.0, -0.05), fontsize=7, frameon=False,
+        )
 
         plt.tight_layout()
         plt.show()
@@ -207,34 +238,66 @@ def _collect_batch_values(
     leiden_list: List[str],
     union: List[str],
     batch_expression: Dict[str, BatchExpression],
-) -> Tuple[List[List[np.ndarray]], np.ndarray]:
-    """Collect per-batch mean expression and per-gene max for normalization."""
-    n_cols = len(union)
-    batch_vals: List[List[np.ndarray]] = []
-    gene_max = np.zeros(n_cols, dtype=np.float32)
+    *,
+    cap_percentile: float = 95.0,
+) -> Tuple[List[List[Tuple[np.ndarray, np.ndarray]]], float]:
+    """Collect sorted per-batch values and a global normalization cap.
 
-    for lid in leiden_list:
+    For each (row, gene) cell, returns a tuple of two arrays sorted so that
+    active batches (n_cells > 0) come first by descending mean, followed by
+    inactive batches (n_cells == 0):
+
+      - sorted_means: per-batch mean expression (active first by mean desc)
+      - sorted_active: bool, True where the batch had cells in this group
+
+    The global cap is the ``cap_percentile``-th percentile of all positive
+    means across active batches in the displayed (rows x genes x batches)
+    pool. Falls back to the pool max if the percentile is 0.
+    """
+    n_rows = len(leiden_list)
+    n_cols = len(union)
+    n_batches = len(next(iter(batch_expression.values())).batches)
+
+    raw_vals = np.zeros((n_rows, n_cols, n_batches), dtype=np.float32)
+    active = np.zeros((n_rows, n_batches), dtype=bool)
+
+    for i, lid in enumerate(leiden_list):
         groupby, group_name = lid.split("@", 1)
         be = batch_expression[groupby]
         g_idx = be.group_to_idx[group_name]
-        gene_indices = {g: int(i) for i, g in enumerate(be.genes)}
+        active[i] = be.n_cells[g_idx] > 0
+        gene_indices = {g: int(k) for k, g in enumerate(be.genes)}
 
-        row_vals: List[np.ndarray] = []
         for j, gene in enumerate(union):
             if gene in gene_indices:
-                vals = be.mean[g_idx, :, gene_indices[gene]].copy()
-            else:
-                vals = np.zeros(len(be.batches), dtype=np.float32)
-            row_vals.append(np.sort(vals)[::-1])  # descending
-            mx = vals.max()
-            if mx > gene_max[j]:
-                gene_max[j] = mx
-        batch_vals.append(row_vals)
+                raw_vals[i, j] = be.mean[g_idx, :, gene_indices[gene]]
 
-    return batch_vals, gene_max
+    # Sort each cell: active batches first (desc by mean), inactive last
+    batch_data: List[List[Tuple[np.ndarray, np.ndarray]]] = []
+    for i in range(n_rows):
+        row: List[Tuple[np.ndarray, np.ndarray]] = []
+        act_i = active[i]
+        for j in range(n_cols):
+            means_j = raw_vals[i, j]
+            # primary key: active (True > False), secondary: -mean
+            order = np.lexsort((-means_j, ~act_i))
+            row.append((means_j[order], act_i[order]))
+        batch_data.append(row)
+
+    # Global cap: percentile of positive means across active batches only
+    pool = raw_vals[np.broadcast_to(active[:, None, :], raw_vals.shape)]
+    pool = pool[pool > 0]
+    if pool.size > 0:
+        cap = float(np.percentile(pool, cap_percentile))
+        if cap <= 0.0:
+            cap = float(pool.max())
+    else:
+        cap = 0.0
+
+    return batch_data, cap
 
 
-def _compute_batch_expression(adata, ctx, batch_key, use_raw=True):
+def _compute_batch_expression(adata, ctx, batch_key):
     """Compute per-batch expression statistics for one resolution level."""
     from scipy import sparse
 
@@ -253,6 +316,7 @@ def _compute_batch_expression(adata, ctx, batch_key, use_raw=True):
     n_groups, n_batches, n_genes = len(groups), len(batches), len(genes)
     mean = np.zeros((n_groups, n_batches, n_genes), dtype=np.float32)
     frac_expr = np.zeros((n_groups, n_batches, n_genes), dtype=np.float32)
+    n_cells_arr = np.zeros((n_groups, n_batches), dtype=np.int32)
 
     obs_groups = adata.obs[ctx.groupby].astype(str).to_numpy()
     obs_batches = adata.obs[batch_key].astype(str).to_numpy()
@@ -262,6 +326,7 @@ def _compute_batch_expression(adata, ctx, batch_key, use_raw=True):
         for b_idx, b_name in enumerate(batches):
             mask = g_mask & (obs_batches == b_name)
             n_cells = int(mask.sum())
+            n_cells_arr[g_idx, b_idx] = n_cells
             if n_cells == 0:
                 continue
             Xsub = X[mask]
@@ -269,8 +334,8 @@ def _compute_batch_expression(adata, ctx, batch_key, use_raw=True):
             frac_expr[g_idx, b_idx] = Xsub.getnnz(axis=0) / n_cells
 
     return BatchExpression(
-        mean=mean, frac_expr=frac_expr, groups=groups,
-        batches=batches, genes=genes, group_to_idx=group_to_idx,
+        mean=mean, frac_expr=frac_expr, n_cells=n_cells_arr,
+        groups=groups, batches=batches, genes=genes, group_to_idx=group_to_idx,
     )
 
 
@@ -580,11 +645,8 @@ def hierarchy(
     # Compute batch expression if requested
     batch_expression = None
     if batch_key is not None:
-        _use_raw = adata.raw is not None
         batch_expression = {
-            mo.ctx.groupby: _compute_batch_expression(
-                adata, mo.ctx, batch_key, use_raw=_use_raw,
-            )
+            mo.ctx.groupby: _compute_batch_expression(adata, mo.ctx, batch_key)
             for mo in markers_list
         }
 
