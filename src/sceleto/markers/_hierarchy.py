@@ -211,7 +211,7 @@ class HierarchyRun:
         )
 
         plt.tight_layout()
-        plt.show()
+        return fig
 
 
 # ---------------------------------------------------------------------------
