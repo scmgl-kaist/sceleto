@@ -103,6 +103,7 @@ class HierarchyRun:
             handles=legend_handles, loc="upper left",
             bbox_to_anchor=(1.0, 1.0), fontsize=7, frameon=False,
         )
+        plt.close(fig)
         return fig
 
     def compare_markers_batch(
@@ -223,6 +224,7 @@ class HierarchyRun:
         )
 
         plt.tight_layout()
+        plt.close(fig)
         return fig
 
 
