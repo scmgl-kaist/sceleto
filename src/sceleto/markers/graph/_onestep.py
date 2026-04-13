@@ -5,7 +5,7 @@ from typing import Any, Callable, Dict, List, Optional, Tuple, Union
 
 import pandas as pd
 
-from .._gene_filter import GeneFilter
+
 
 
 @dataclass
@@ -34,7 +34,7 @@ class MarkerGraphRun:
 
     # Specific marker outputs
     specific_ranking_df: pd.DataFrame
-    specific_marker_log: Dict[str, List[str]]
+    _marker_log: Dict[str, List[str]]
 
     # Batch-aware validation (None if batch_key was not provided)
     batch_key: Optional[str] = None
@@ -60,6 +60,11 @@ class MarkerGraphRun:
 
     def plot_highlight_edges(self, edges, **kwargs):
         return self.viz.plot_highlight_edges(edges, **kwargs)
+
+    @property
+    def markers(self) -> Dict[str, List[str]]:
+        """Per-group marker gene lists, ranked by specificity score."""
+        return self._marker_log
 
     def batch_detail(
         self,
@@ -101,39 +106,6 @@ class MarkerGraphRun:
             fc_threshold=fc_threshold,
         )
 
-    def top_markers(
-        self,
-        group: str,
-        n: int = 10,
-        gene_filter: Optional[GeneFilter] = None,
-    ) -> List[str]:
-        """Return top-*n* markers for *group*, optionally filtered.
-
-        Parameters
-        ----------
-        group
-            Group key (must exist in ``specific_marker_log``).
-        n
-            Number of markers to return.
-        gene_filter
-            Optional :class:`GeneFilter`.  Excluded genes are skipped and
-            the next-ranked gene fills the slot.
-        """
-        genes = self.specific_marker_log.get(group, [])
-        if gene_filter is not None:
-            genes = gene_filter.filter(genes)
-        return genes[:n]
-
-    def top_markers_dict(
-        self,
-        n: int = 10,
-        gene_filter: Optional[GeneFilter] = None,
-    ) -> Dict[str, List[str]]:
-        """Return :meth:`top_markers` for every group as a dict."""
-        return {
-            g: self.top_markers(g, n=n, gene_filter=gene_filter)
-            for g in self.specific_marker_log
-        }
 
 
 def run_marker_graph(
@@ -289,7 +261,7 @@ def run_marker_graph(
     )
 
     specific_ranking_df: pd.DataFrame
-    specific_marker_log: Dict[str, List[str]]
+    _marker_log: Dict[str, List[str]]
 
     specific_inputs_df = build_local_marker_inputs(
         ctx=ctx,
@@ -348,9 +320,9 @@ def run_marker_graph(
                 batch_stats_df, on=["group", "gene"], how="left",
             )
 
-    specific_marker_log = {str(g): [] for g in ctx.groups}
+    _marker_log = {str(g): [] for g in ctx.groups}
     for g, sdf in specific_ranking_df.groupby("group", sort=False):
-        specific_marker_log[str(g)] = sdf["gene"].astype(str).tolist()
+        _marker_log[str(g)] = sdf["gene"].astype(str).tolist()
 
     return MarkerGraphRun(
         ctx=ctx,
@@ -365,7 +337,7 @@ def run_marker_graph(
         gene_to_edges=gene_to_edges,
         viz=viz,
         specific_ranking_df=specific_ranking_df,
-        specific_marker_log=specific_marker_log,
+        _marker_log=_marker_log,
         batch_key=batch_key,
         batch_edge_fc_df=batch_edge_fc_df,
         batch_stats_df=batch_stats_df,

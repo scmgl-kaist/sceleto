@@ -567,7 +567,7 @@ def hierarchy(
     full_gene_lists: Dict[str, List[str]] = {}
 
     for level_key, mo in zip([g0, g1, g2], markers_list):
-        for k, v in mo.specific_marker_log.items():
+        for k, v in mo.markers.items():
             leiden_id = f"{level_key}@{k}"
             full_gene_lists[leiden_id] = list(v)
             genes = gene_filter.filter(v) if gene_filter is not None else v

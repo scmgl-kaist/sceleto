@@ -281,12 +281,15 @@ class MarkersSimple(MarkersBase):
             min_frac=min_frac,
             min_count=min_count,
         )
-        self.mks = self._mks
-
         if run_scanpy:
             import scanpy as sc
             sc.tl.rank_genes_groups(adata, groupby)
             adata.uns["rnk"] = pd.DataFrame(adata.uns["rank_genes_groups"]["names"])
+
+    @property
+    def markers(self) -> dict:
+        """Per-group marker gene lists."""
+        return self._mks
 
     @property
     def stats(self) -> ClusterStats:

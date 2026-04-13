@@ -7,7 +7,7 @@ Usage
 
 With marker results:
 >>> mk = sl.markers.simple(adata, 'leiden')
->>> sl.dotplot(adata, mk.mks, 'leiden')
+>>> sl.dotplot(adata, mk.markers, 'leiden')
 """
 
 from __future__ import annotations
