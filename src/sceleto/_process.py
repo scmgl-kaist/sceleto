@@ -1,4 +1,8 @@
-"""Processing functions ported from scjp."""
+"""Preprocessing functions (ported from scjp, modernized)."""
+
+from __future__ import annotations
+
+from typing import Optional
 
 import numpy as np
 import scanpy as sc
@@ -15,150 +19,139 @@ def _load_cc_genes():
 
 
 def remove_geneset(adata, geneset):
+    """Remove genes in *geneset* from *adata* and return a copy."""
+    return adata[:, ~adata.var_names.isin(list(geneset))].copy()
+
+
+def sc_process(adata, steps: str = "fspkuc", n_pcs: int = 50):
+    """Scanpy preprocessing pipeline controlled by a step string.
+
+    Each letter in *steps* triggers one preprocessing step, executed in order:
+
+    ===  ============================
+    n    normalize_total (1e4)
+    l    log1p + store .raw
+    f    highly_variable_genes + filter
+    r    remove cell-cycle genes
+    s    scale (max_value=10)
+    p    PCA
+    k    kNN neighbors
+    u    UMAP
+    c    leiden clustering
+    ===  ============================
+
+    Parameters
+    ----------
+    adata : AnnData
+    steps : str
+        Letters selecting which steps to run. Default ``"fspkuc"``.
+    n_pcs : int
+        Number of PCs for neighbor search. Default 50.
     """
-    Remove the given geneset from adata.
-
-    adata:AnnData,         REQUIRED | AnnData object.
-    geneset:list,          REQUIRED | List of genes to be removed.
-    """
-    adata = adata[:, ~adata.var_names.isin(list(geneset))].copy()
-    return adata
-
-
-def sc_process(adata, pid='fspkuc', n_pcs=50):
-    """
-    Performs desired scanpy preprocessing according to the letters passed
-    into the pid parameter.
-
-    adata:AnnData,      REQUIRED | AnnData object.
-    pid:str,            REQUIRED | A string made out of letters, each
-                                   corresponding to a scanpy preprocessing
-                                   function.
-    n_pcs:int,      NOT REQUIRED | Number of PCs to be used for neighbor
-                                   search. Default = 50
-
-    Letters for pid and their corresponding function:
-
-    n: normalise
-    l: log
-    f: filter hvg
-    r: remove cc_genes
-    s: scale
-    p: pca
-    k: knn_neighbors
-    u: umap
-    c: leiden clustering
-    """
-    if 'n' in pid:
-        sc.pp.normalize_per_cell(adata, counts_per_cell_after=10e4)
-    if 'l' in pid:
+    if "n" in steps:
+        sc.pp.normalize_total(adata, target_sum=1e4)
+    if "l" in steps:
         sc.pp.log1p(adata)
         adata.raw = adata
-        print('adding raw...')
-    if 'f' in pid:
+        print("adding raw...")
+    if "f" in steps:
         if adata.raw is None:
             adata.raw = adata
-            print('adding raw...')
-        sc.pp.filter_genes_dispersion(adata)
-    if 'r' in pid:
+            print("adding raw...")
+        sc.pp.highly_variable_genes(adata)
+        adata = adata[:, adata.var.highly_variable].copy()
+    if "r" in steps:
         cc_genes = _load_cc_genes()
         adata = remove_geneset(adata, cc_genes)
-        print('removing cc_genes...')
-    if 's' in pid:
+        print("removing cc_genes...")
+    if "s" in steps:
         sc.pp.scale(adata, max_value=10)
-    if 'p' in pid:
+    if "p" in steps:
         sc.pp.pca(adata)
-    if 'k' in pid:
+    if "k" in steps:
         sc.pp.neighbors(adata, n_pcs=n_pcs)
-    if 'u' in pid:
+    if "u" in steps:
         sc.tl.umap(adata)
-    if 'c' in pid:
+    if "c" in steps:
         sc.tl.leiden(adata)
     return adata
 
 
 def read_process(
     adata,
-    version,
-    species='human',
-    sample=None,
-    define_var=True,
-    call_doublet=True,
-    write=True,
-    min_n_counts=1000,
-    min_n_genes=500,
-    max_n_genes=7000,
-    max_p_mito=0.5,
+    version: str,
+    *,
+    species: str = "human",
+    sample: Optional[str] = None,
+    define_var: bool = True,
+    call_doublet: bool = True,
+    write: bool = True,
+    min_n_counts: int = 1000,
+    min_n_genes: int = 500,
+    max_n_genes: int = 7000,
+    max_pct_mito: float = 0.5,
 ):
-    """
-    Used for reading and saving the data with desired cell filtration.
+    """QC filtering + optional doublet detection + write.
 
-    adata:AnnData,            REQUIRED | AnnData object.
-    version:str,              REQUIRED | The version of the h5ad file.
-    species:str,              REQUIRED | The species which the data belongs
-                                         to. Default = 'human'
-    sample:str,               REQUIRED | Name of the sample the cells belong
-                                         to. Default = None
-    define_var:boolean,   NOT REQUIRED | Defines gene names if true and adds
-                                         it to adata. Default = True
-    call_doublet:boolean, NOT REQUIRED | Identifies doublet cells and stores
-                                         it in adata. Default = True
-    write:boolean,        NOT REQUIRED | Saves the file. Default = True
-    min_n_counts:int,         REQUIRED | Minimum number of counts per cell.
-                                         Default = 1000
-    min_n_genes:int,          REQUIRED | Minimum number of genes per cell.
-                                         Default = 500
-    max_n_genes:int,          REQUIRED | Maximum number of genes per cell.
-                                         Default = 7000
-    max_p_mito:float,         REQUIRED | Maximum allowed ratio of
-                                         mitochondrial genes. Default = 0.5
+    Parameters
+    ----------
+    adata : AnnData
+        Raw count matrix.
+    version : str
+        Version tag for the output filename.
+    species : str
+        ``"human"`` or ``"mouse"`` (determines mito gene prefix).
+    sample : str, optional
+        Sample name stored in ``adata.obs["Sample"]``.
+    define_var : bool
+        If True, copy gene names / Ensembl IDs into ``adata.var``.
+    call_doublet : bool
+        If True, run scrublet for doublet detection (lazy import).
+    write : bool
+        If True, save filtered adata as h5ad.
+    min_n_counts, min_n_genes, max_n_genes : int
+        Cell-level count / gene number thresholds.
+    max_pct_mito : float
+        Maximum mitochondrial fraction (0–1).
     """
     if sample:
-        adata.obs['Sample'] = sample
+        adata.obs["Sample"] = sample
     if define_var:
-        adata.var['GeneName'] = list(adata.var.gene_ids.index)
-        adata.var['EnsemblID'] = list(adata.var.gene_ids)
-    adata.obs['n_counts'] = np.sum(adata.X, axis=1).A1
-    adata.obs['n_genes'] = np.sum(adata.X > 0, axis=1).A1
+        adata.var["GeneName"] = list(adata.var.gene_ids.index)
+        adata.var["EnsemblID"] = list(adata.var.gene_ids)
 
-    print('calculating mito... as species = {}'.format(species))
-    if species == 'mouse':
-        mito_genes = adata.var_names.str.startswith('mt-')
-    elif species == 'human':
-        mito_genes = adata.var_names.str.startswith('MT-')
-    else:
-        raise ValueError(f"Unknown species: {species}. Use 'human' or 'mouse'.")
+    # QC metrics via scanpy
+    mito_prefix = {"human": "MT-", "mouse": "mt-"}
+    if species not in mito_prefix:
+        raise ValueError(f"Unknown species: {species!r}. Use 'human' or 'mouse'.")
 
-    adata.obs['mito'] = (
-        np.sum(adata.X[:, mito_genes], axis=1).A1
-        / (np.sum(adata.X, axis=1).A1 + 1)
-    )
+    adata.var["mt"] = adata.var_names.str.startswith(mito_prefix[species])
+    sc.pp.calculate_qc_metrics(adata, qc_vars=["mt"], inplace=True)
 
+    print(f"calculating mito... as species = {species}")
     print(
-        'filtering cells... higher than {} counts, more than {} and less '
-        'than {} genes, less than {} p_mito...'.format(
-            min_n_counts, min_n_genes, max_n_genes, max_p_mito
-        )
+        f"filtering cells... >{min_n_counts} counts, "
+        f"{min_n_genes}–{max_n_genes} genes, <{max_pct_mito} pct_mito..."
     )
-    # filter cells
-    clist = []
-    clist.append(np.array(adata.obs['n_counts'] > min_n_counts))
-    clist.append(np.array(adata.obs['n_genes'] > min_n_genes))
-    clist.append(np.array(adata.obs['n_genes'] < max_n_genes))
-    clist.append(np.array(adata.obs['mito'] < max_p_mito))
 
-    c = np.column_stack(clist).all(axis=1)
-    adata = adata[c].copy()
+    keep = (
+        (adata.obs["total_counts"] > min_n_counts)
+        & (adata.obs["n_genes_by_counts"] > min_n_genes)
+        & (adata.obs["n_genes_by_counts"] < max_n_genes)
+        & (adata.obs["pct_counts_mt"] / 100 < max_pct_mito)
+    )
+    adata = adata[keep].copy()
 
     if call_doublet:
         import scrublet as scr
-        print('calling doublets using scrublet...')
+        print("calling doublets using scrublet...")
         scrub = scr.Scrublet(adata.X)
         doublet_scores, predicted_doublets = scrub.scrub_doublets(verbose=False)
-        adata.obs['doublet_scores'] = doublet_scores
-        adata.obs['predicted_doublets'] = predicted_doublets
+        adata.obs["doublet_scores"] = doublet_scores
+        adata.obs["predicted_doublets"] = predicted_doublets
 
     if write:
-        print('writing output into write/%s%s_filtered.h5ad ...' % (version, sample))
-        sc.write('%s%s_filtered' % (version, sample), adata)
+        out_path = f"{version}{sample}_filtered.h5ad"
+        print(f"writing output to {out_path} ...")
+        adata.write_h5ad(out_path)
     return adata
