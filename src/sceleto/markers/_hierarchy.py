@@ -492,7 +492,7 @@ def hierarchy(
     adata: Any,
     markers_list: Sequence[Any],
     *,
-    min_cells_for_path: int = 500,
+    min_cells_for_path: Optional[int] = None,
     n_top_markers: int = 10,
     gene_filter: Optional[GeneFilter] = None,
     batch_key: Optional[str] = None,
@@ -501,8 +501,19 @@ def hierarchy(
 
     Combines three resolution levels of marker outputs into a hierarchical
     tree structure with branching-point markers.
+
+    Parameters
+    ----------
+    min_cells_for_path
+        Paths with fewer cells are reassigned to their major neighbor path
+        via kNN connectivities. Default: ``int(adata.shape[0] * 0.005)``.
     """
+    from scipy import sparse
+
     markers_list = list(markers_list)
+
+    if min_cells_for_path is None:
+        min_cells_for_path = max(int(adata.shape[0] * 0.005), 1)
 
     g0, g1, g2 = [mo.ctx.groupby for mo in markers_list]
 
@@ -532,12 +543,38 @@ def hierarchy(
         adata.obs["path"], categories=path_categories, ordered=True,
     )
 
-    # Remove small paths
+    # 4) Identify small paths and reassign their cells to neighbor paths
     small_paths = (
         adata.obs["path"].value_counts()
         .loc[lambda s: s < min_cells_for_path].index
     )
-    adata.obs.loc[adata.obs["path"].isin(small_paths), "path"] = pd.NA
+    small_mask = adata.obs["path"].isin(small_paths).to_numpy()
+
+    if small_mask.any():
+        conn = adata.obsp["connectivities"]
+        if not sparse.issparse(conn):
+            conn = sparse.csr_matrix(conn)
+        else:
+            conn = conn.tocsr()
+
+        # path labels for non-small cells; NA for small-path cells
+        path_arr = adata.obs["path"].to_numpy(dtype=object, copy=True)
+        path_arr[small_mask] = None
+
+        small_indices = np.where(small_mask)[0]
+        for idx in small_indices:
+            row = conn[idx]
+            nbr_indices = row.indices
+            nbr_paths = path_arr[nbr_indices]
+            # keep only neighbors with valid (non-small) paths
+            valid = nbr_paths[nbr_paths != None]  # noqa: E711
+            if len(valid) > 0:
+                values, counts = np.unique(valid, return_counts=True)
+                path_arr[idx] = values[counts.argmax()]
+
+        adata.obs["path"] = pd.Categorical(
+            path_arr, categories=path_categories, ordered=True,
+        )
 
     present = set(adata.obs["path"].dropna().unique())
     new_categories = [c for c in path_categories if c in present]
