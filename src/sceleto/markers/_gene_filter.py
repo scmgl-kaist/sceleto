@@ -14,7 +14,7 @@ True
 
 Keep only transcription factors:
 
->>> gf = GeneFilter(include=["Transcription Factor"])
+>>> gf = GeneFilter(include=["Transcription_Factor"])
 >>> gf("PAX6")
 True
 >>> gf("ACTB")
