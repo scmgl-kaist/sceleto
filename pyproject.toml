@@ -5,7 +5,7 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "sceleto"
 version = "0.1.0"
-description = "Single-cell Leiden-based Edge Topology — marker discovery, gene network, and annotation tools"
+description = "A backbone package for single-cell RNA-seq analysis — marker discovery, gene network, and cell type annotation"
 requires-python = ">=3.10"
 authors = [{ name = "Seungmin Cheong" }]
 dependencies = [
