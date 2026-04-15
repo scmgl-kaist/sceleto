@@ -32,13 +32,6 @@ class HierarchyRun:
     icls_full_dict: Dict[str, str]
     icls_path_df: pd.DataFrame
     marker_rank_df: pd.DataFrame
-    icls_gene_presence_df: pd.DataFrame
-    gene_freq_df: pd.DataFrame
-    score_df: pd.DataFrame
-
-    # Tree artifacts
-    tree_root: Dict[str, Any]
-    icls_to_path: Dict[int, List[str]]
 
     # Full (untruncated) ranked gene lists per leiden ID
     full_gene_lists: Dict[str, List[str]]
@@ -51,9 +44,6 @@ class HierarchyRun:
 
     # Batch key used (None if not provided)
     batch_key: Optional[str]
-
-    # Output from tree traversal (markers per branching)
-    markers: Any
 
     def interactive_viewer(
         self,
@@ -262,7 +252,7 @@ class HierarchyRun:
 
 
 # ---------------------------------------------------------------------------
-# Helper functions (extracted from hierarchy())
+# Helper functions
 # ---------------------------------------------------------------------------
 
 def _build_gene_sets(
@@ -288,19 +278,7 @@ def _collect_batch_values(
     *,
     cap_percentile: float = 95.0,
 ) -> Tuple[List[List[Tuple[np.ndarray, np.ndarray]]], float]:
-    """Collect sorted per-batch values and a global normalization cap.
-
-    For each (row, gene) cell, returns a tuple of two arrays sorted so that
-    active batches (n_cells > 0) come first by descending mean, followed by
-    inactive batches (n_cells == 0):
-
-      - sorted_means: per-batch mean expression (active first by mean desc)
-      - sorted_active: bool, True where the batch had cells in this group
-
-    The global cap is the ``cap_percentile``-th percentile of all positive
-    means across active batches in the displayed (rows x genes x batches)
-    pool. Falls back to the pool max if the percentile is 0.
-    """
+    """Collect sorted per-batch values and a global normalization cap."""
     n_rows = len(leiden_list)
     n_cols = len(union)
     n_batches = len(next(iter(batch_expression.values())).batches)
@@ -319,19 +297,16 @@ def _collect_batch_values(
             if gene in gene_indices:
                 raw_vals[i, j] = be.mean[g_idx, :, gene_indices[gene]]
 
-    # Sort each cell: active batches first (desc by mean), inactive last
     batch_data: List[List[Tuple[np.ndarray, np.ndarray]]] = []
     for i in range(n_rows):
         row: List[Tuple[np.ndarray, np.ndarray]] = []
         act_i = active[i]
         for j in range(n_cols):
             means_j = raw_vals[i, j]
-            # primary key: active (True > False), secondary: -mean
             order = np.lexsort((-means_j, ~act_i))
             row.append((means_j[order], act_i[order]))
         batch_data.append(row)
 
-    # Global cap: percentile of positive means across active batches only
     pool = raw_vals[np.broadcast_to(active[:, None, :], raw_vals.shape)]
     pool = pool[pool > 0]
     if pool.size > 0:
@@ -386,137 +361,6 @@ def _compute_batch_expression(adata, ctx, batch_key):
     )
 
 
-def _get_node_stats(
-    icls_indices: List[int],
-    score_df: pd.DataFrame,
-    rank_col: str,
-    present_col: str,
-) -> pd.DataFrame:
-    """Aggregate gene stats for a set of icls indices.
-
-    For each gene, take best (min) rank and max presence across the group.
-    """
-    subset = score_df[score_df["icls"].isin(icls_indices)].copy()
-    subset[rank_col] = subset[rank_col].fillna(100)
-    subset[present_col] = subset[present_col].fillna(0)
-
-    return subset.groupby("gene").agg({
-        rank_col: "min",
-        present_col: "max",
-        "idf_icls": "first",
-    })
-
-
-def _find_branching_markers(
-    children_dict: Dict[str, Dict],
-    score_df: pd.DataFrame,
-    target_level_suffix: str,
-    gene_filter: Optional[GeneFilter] = None,
-    n_top: int = 5,
-) -> Dict[str, List[Tuple[str, float, float, float]]]:
-    """Find markers distinguishing sibling nodes at a branching point.
-
-    Returns {child_name: [(gene, score, rank, exclusivity), ...]}.
-    """
-    if not children_dict:
-        return {}
-
-    rank_col = f"rank_{target_level_suffix}"
-    present_col = f"present_{target_level_suffix}"
-
-    children_stats = {
-        name: _get_node_stats(node["icls_indices"], score_df, rank_col, present_col)
-        for name, node in children_dict.items()
-    }
-
-    results = {}
-
-    for target_child, target_stats in children_stats.items():
-        siblings = [n for n in children_stats if n != target_child]
-        scores = []
-
-        for gene in target_stats.index:
-            my_present = target_stats.loc[gene, present_col]
-            if my_present == 0:
-                continue
-
-            my_rank = target_stats.loc[gene, rank_col]
-            idf = target_stats.loc[gene, "idf_icls"]
-
-            # exclusivity vs siblings
-            sibling_present = [
-                children_stats[sib].loc[gene, present_col]
-                if gene in children_stats[sib].index else 0
-                for sib in siblings
-            ]
-            avg_sibling = np.mean(sibling_present) if siblings else 0
-            exclusivity = my_present - avg_sibling
-
-            if exclusivity <= 0.1:
-                continue
-
-            if gene_filter is not None and not gene_filter(gene):
-                continue
-
-            rank_score = 1.0 / (my_rank + 1.0)
-            final_score = exclusivity * (1 + rank_score) * np.log1p(idf)
-            scores.append((gene, final_score, my_rank, exclusivity))
-
-        scores.sort(key=lambda x: x[1], reverse=True)
-        results[target_child] = scores[:n_top]
-
-    return results
-
-
-def _print_tree(
-    node: Dict[str, Dict],
-    score_df: pd.DataFrame,
-    levels: Tuple[str, str, str],
-    gene_filter: Optional[GeneFilter] = None,
-    depth: int = 0,
-) -> Optional[Dict]:
-    """Recursively print the hierarchy tree and compute branching markers."""
-    g0, g1, g2 = levels
-    indent = "    " * depth
-
-    if depth == 0:
-        print("Hierarchical Marker Tree")
-        print("=" * 30)
-
-    if not node:
-        return None
-
-    first_child = next(iter(node))
-    if g1 in first_child:
-        suffix = "1"
-    elif g2 in first_child:
-        suffix = "2"
-    else:
-        suffix = "0"
-
-    markers = _find_branching_markers(node, score_df, suffix, gene_filter)
-
-    for child_name, child_node in node.items():
-        marker_str = ""
-        if child_name in markers:
-            top_genes = [m[0] for m in markers[child_name]]
-            marker_str = f" :: Markers: {', '.join(top_genes)}"
-
-        icls_info = ""
-        if not child_node["children"]:
-            icls_info = f" (icls {child_node['icls_indices']})"
-
-        print(f"{indent}\u251c\u2500\u2500 {child_name}{icls_info}{marker_str}")
-
-        if child_node["children"]:
-            _print_tree(
-                child_node["children"], score_df, levels,
-                gene_filter=gene_filter, depth=depth + 1,
-            )
-
-    return markers
-
-
 # ---------------------------------------------------------------------------
 # Main entry point
 # ---------------------------------------------------------------------------
@@ -532,8 +376,8 @@ def hierarchy(
 ) -> HierarchyRun:
     """Run cross-resolution hierarchy pipeline.
 
-    Combines three resolution levels of marker outputs into a hierarchical
-    tree structure with branching-point markers.
+    Combines three resolution levels of marker outputs into icls
+    (integration cell lineage strings) and prepares marker comparison.
 
     Parameters
     ----------
@@ -648,81 +492,6 @@ def hierarchy(
         rows, columns=["resolution", "leiden", "gene", "rank"],
     )
 
-    # Build gene presence per icls
-    temp: List[pd.DataFrame] = []
-    for k, v in icls_full_dict.items():
-        l0, l1, l2 = v.split("|")
-        piv = df_marker_rank[
-            df_marker_rank["leiden"].isin([l0, l1, l2])
-        ].pivot(index="gene", columns="resolution", values="rank")
-        piv = piv.reindex(columns=[g0, g1, g2])
-        df_binary = piv.notna().astype("int8")
-
-        df = pd.merge(piv, df_binary, left_index=True, right_index=True, how="left")
-        df.columns = ["rank_0", "rank_1", "rank_2", "present_0", "present_1", "present_2"]
-        df["n_levels"] = df["present_0"] + df["present_1"] + df["present_2"]
-        df = pd.merge(
-            pd.Series([k] * df.shape[0], name="icls"),
-            df.reset_index(), how="left", left_index=True, right_index=True,
-        )
-        df = df.sort_values("n_levels", ascending=False)
-        temp.append(df)
-
-    icls_gene_presence = pd.concat(temp, axis=0).reset_index(drop=True)
-
-    # Global DF/IDF
-    present_cols = [c for c in icls_gene_presence.columns if c.startswith("present_")]
-    if present_cols:
-        present_any = icls_gene_presence[present_cols].fillna(False).astype(bool).any(axis=1)
-        df_use = icls_gene_presence.loc[present_any, ["icls", "gene"]].copy()
-    else:
-        df_use = icls_gene_presence[["icls", "gene"]].copy()
-
-    N_icls = df_use["icls"].nunique()
-    gene_freq = (
-        df_use.groupby("gene")["icls"].nunique()
-        .rename("df_global_icls").reset_index()
-    )
-    gene_freq["frac_icls"] = gene_freq["df_global_icls"] / N_icls
-    gene_freq["idf_global_icls"] = (
-        np.log((N_icls + 1) / (gene_freq["df_global_icls"] + 1)) + 1.0
-    )
-    gene_freq = (
-        gene_freq.set_index("gene")
-        .sort_values(["df_global_icls", "idf_global_icls"], ascending=[False, True])
-    )
-    gene_freq.columns = ["n_icls", "frac_icls", "idf_icls"]
-
-    score_df = pd.merge(
-        icls_gene_presence, gene_freq.reset_index(), how="left", on="gene",
-    )
-    score_df["icls"] = score_df["icls"].astype("int")
-
-    # Build tree
-    tree_root: Dict[str, Any] = {}
-    icls_to_path: Dict[int, List[str]] = {}
-
-    for icls_idx, path_str in icls_full_dict.items():
-        parts = path_str.split("|")
-        current_level = tree_root
-        path_list: List[str] = []
-
-        for part in parts:
-            path_list.append(part)
-            if part not in current_level:
-                current_level[part] = {
-                    "children": {}, "icls_indices": [], "level_name": part,
-                }
-            current_level[part]["icls_indices"].append(int(icls_idx))
-            current_level = current_level[part]["children"]
-
-        icls_to_path[int(icls_idx)] = path_list
-
-    # Print tree and get markers
-    markers = _print_tree(
-        tree_root, score_df, (g0, g1, g2), gene_filter=gene_filter,
-    )
-
     # Build contexts dict
     contexts = {mo.ctx.groupby: mo.ctx for mo in markers_list}
 
@@ -743,14 +512,8 @@ def hierarchy(
         icls_full_dict=icls_full_dict,
         icls_path_df=df_icls_path,
         marker_rank_df=df_marker_rank,
-        icls_gene_presence_df=icls_gene_presence,
-        gene_freq_df=gene_freq.reset_index(),
-        score_df=score_df,
-        tree_root=tree_root,
-        icls_to_path=icls_to_path,
         full_gene_lists=full_gene_lists,
         contexts=contexts,
         batch_expression=batch_expression,
         batch_key=batch_key,
-        markers=markers,
     )
