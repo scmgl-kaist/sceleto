@@ -55,6 +55,39 @@ class HierarchyRun:
     # Output from tree traversal (markers per branching)
     markers: Any
 
+    def interactive_viewer(
+        self,
+        adata,
+        *,
+        save: str = "interactive_viewer.html",
+        n_top: Optional[int] = None,
+    ) -> None:
+        """Generate an interactive HTML viewer for marker comparison.
+
+        Parameters
+        ----------
+        adata
+            AnnData with ``obs['icls']`` (set by hierarchy) and
+            ``obsm['X_umap']``.
+        save
+            Output HTML file path.
+        n_top
+            Number of top markers per cluster. Defaults to the value
+            used in the hierarchy run.
+        """
+        from ._viewer import build_interactive_html
+
+        if n_top is None:
+            n_top = self.params["n_top_markers"]
+
+        build_interactive_html(
+            adata=adata,
+            icls_full_dict=self.icls_full_dict,
+            full_gene_lists=self.full_gene_lists,
+            n_top=n_top,
+            save=save,
+        )
+
     def compare_markers(
         self,
         icls: str,
