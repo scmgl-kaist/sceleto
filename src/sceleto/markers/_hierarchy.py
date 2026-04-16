@@ -65,18 +65,28 @@ class HierarchyRun:
             Number of top markers per cluster. Defaults to the value
             used in the hierarchy run.
         """
-        from ._viewer import build_interactive_html
-
         if n_top is None:
             n_top = self.params["n_top_markers"]
 
-        build_interactive_html(
-            adata=adata,
-            icls_full_dict=self.icls_full_dict,
-            full_gene_lists=self.full_gene_lists,
-            n_top=n_top,
-            save=save,
-        )
+        if self.batch_expression is not None:
+            from ._viewer import build_interactive_html_batch
+            build_interactive_html_batch(
+                adata=adata,
+                icls_full_dict=self.icls_full_dict,
+                full_gene_lists=self.full_gene_lists,
+                batch_expression=self.batch_expression,
+                n_top=n_top,
+                save=save,
+            )
+        else:
+            from ._viewer import build_interactive_html
+            build_interactive_html(
+                adata=adata,
+                icls_full_dict=self.icls_full_dict,
+                full_gene_lists=self.full_gene_lists,
+                n_top=n_top,
+                save=save,
+            )
 
     def compare_markers(
         self,
@@ -136,7 +146,6 @@ class HierarchyRun:
         figsize=None,
         gene_filter: Optional[GeneFilter] = None,
         return_genes: bool = False,
-        cap_percentile: float = 95.0,
     ):
         """Visualize top-N marker overlap with per-batch expression strips.
 
@@ -144,11 +153,12 @@ class HierarchyRun:
 
           - grey  : batch has no cells in this cluster (no data)
           - white : batch has cells but mean expression is 0
-          - red   : colored by mean / global_cap, clipped to [0, 1]
+          - red   : colored by mean / cell_max, where cell_max is the
+                    maximum batch mean within that (cluster, gene) cell
 
-        The global cap is the ``cap_percentile``-th percentile of all positive
-        active-batch means in the displayed cells, so a single outlier batch
-        does not dominate the scale and cross-cell colors stay comparable.
+        Color scale is per-cell normalized (0–1), so each cell's brightest
+        batch is always 1.  This makes batch consistency visible regardless
+        of absolute expression level.
         """
         import matplotlib.pyplot as plt
         import matplotlib.colors as mcolors
@@ -181,10 +191,7 @@ class HierarchyRun:
         n_rows = len(leiden_list)
         n_cols = len(union)
 
-        batch_data, global_cap = _collect_batch_values(
-            leiden_list, union, self.batch_expression,
-            cap_percentile=cap_percentile,
-        )
+        batch_data = _collect_batch_values(leiden_list, union, self.batch_expression)
         n_batches = len(next(iter(self.batch_expression.values())).batches)
 
         if figsize is None:
@@ -207,11 +214,7 @@ class HierarchyRun:
                         elif means_sorted[b] == 0:
                             facecolor = "white"
                         else:
-                            if global_cap > 0:
-                                norm_val = min(means_sorted[b] / global_cap, 1.0)
-                            else:
-                                norm_val = 0.0
-                            facecolor = cmap(norm_val)
+                            facecolor = cmap(means_sorted[b])
                         ax.add_patch(Rectangle(
                             (j * cell_w + b * strip_w, y * cell_h),
                             strip_w, cell_h,
@@ -222,32 +225,30 @@ class HierarchyRun:
                     facecolor="none", edgecolor="black", linewidth=0.5,
                 ))
 
+        fs = 8
         ax.set_xlim(0, n_cols * cell_w)
         ax.set_ylim(0, n_rows * cell_h)
         ax.set_xticks([j * cell_w + cell_w / 2 for j in range(n_cols)])
-        ax.set_xticklabels(union, rotation=90, ha="center", fontsize=8)
+        ax.set_xticklabels(union, rotation=90, ha="center", fontsize=fs)
         ax.set_yticks([i * cell_h + cell_h / 2 for i in range(n_rows)])
-        ax.set_yticklabels(leiden_list[::-1], fontsize=9)
-        ax.set_title(f"Marker genes for path {icls} (per-batch)")
+        ax.set_yticklabels(leiden_list[::-1], fontsize=fs)
+        ax.set_title(f"Marker genes for path {icls} (per-batch)", fontsize=fs)
 
-        sm = plt.cm.ScalarMappable(
-            cmap=cmap, norm=mcolors.Normalize(vmin=0, vmax=global_cap or 1.0),
-        )
+        sm = plt.cm.ScalarMappable(cmap=cmap, norm=mcolors.Normalize(vmin=0, vmax=1))
         sm.set_array([])
         cbar = fig.colorbar(sm, ax=ax, fraction=0.02, pad=0.02)
-        cbar.set_label(f"Mean expression\n(cap = {cap_percentile:.0f}p)")
+        cbar.set_label("Mean expression\n(per-cell max = 1)", fontsize=fs)
+        cbar.ax.tick_params(labelsize=fs)
 
         legend_handles = [
             Patch(facecolor=grey_color, edgecolor="black", label="not in cluster"),
-            Patch(facecolor="white", edgecolor="black", label="zero expression"),
         ]
         ax.legend(
             handles=legend_handles, loc="upper left",
-            bbox_to_anchor=(1.0, -0.05), fontsize=7, frameon=False,
+            bbox_to_anchor=(1.0, -0.05), fontsize=fs, frameon=False,
         )
 
         plt.tight_layout()
-        plt.close(fig)
         return fig
 
 
@@ -275,10 +276,14 @@ def _collect_batch_values(
     leiden_list: List[str],
     union: List[str],
     batch_expression: Dict[str, BatchExpression],
-    *,
-    cap_percentile: float = 95.0,
-) -> Tuple[List[List[Tuple[np.ndarray, np.ndarray]]], float]:
-    """Collect sorted per-batch values and a global normalization cap."""
+) -> List[List[Tuple[np.ndarray, np.ndarray]]]:
+    """Collect per-batch values normalized per cell by that cell's max batch mean.
+
+    For each (cluster, gene) cell:
+    - raw batch means are divided by the cell's own maximum active-batch mean
+    - batches are sorted: active first, then by descending normalized value
+    - returns values in [0, 1] where 1 = the brightest batch in that cell
+    """
     n_rows = len(leiden_list)
     n_cols = len(union)
     n_batches = len(next(iter(batch_expression.values())).batches)
@@ -302,21 +307,16 @@ def _collect_batch_values(
         row: List[Tuple[np.ndarray, np.ndarray]] = []
         act_i = active[i]
         for j in range(n_cols):
-            means_j = raw_vals[i, j]
+            means_j = raw_vals[i, j].copy()
+            # per-cell max normalization
+            active_means = means_j[act_i]
+            cell_max = float(active_means.max()) if act_i.any() and active_means.max() > 0 else 1.0
+            means_j /= cell_max
             order = np.lexsort((-means_j, ~act_i))
             row.append((means_j[order], act_i[order]))
         batch_data.append(row)
 
-    pool = raw_vals[np.broadcast_to(active[:, None, :], raw_vals.shape)]
-    pool = pool[pool > 0]
-    if pool.size > 0:
-        cap = float(np.percentile(pool, cap_percentile))
-        if cap <= 0.0:
-            cap = float(pool.max())
-    else:
-        cap = 0.0
-
-    return batch_data, cap
+    return batch_data
 
 
 def _compute_batch_expression(adata, ctx, batch_key):
