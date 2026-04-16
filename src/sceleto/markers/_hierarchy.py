@@ -75,6 +75,7 @@ class HierarchyRun:
                 icls_full_dict=self.icls_full_dict,
                 full_gene_lists=self.full_gene_lists,
                 batch_expression=self.batch_expression,
+                batch_key=self.batch_key,
                 n_top=n_top,
                 save=save,
             )

@@ -425,7 +425,10 @@ def build_interactive_html_batch(
     save
         Output file path.
     """
-    # ── data extraction ──────────────────────────────────────────
+    import matplotlib.cm as _cm
+    import matplotlib.colors as _mc
+
+    # ── UMAP / icls data ──────────────────────────────────────────
     umap_coords = adata.obsm["X_umap"]
     df = pd.DataFrame(
         {"umap_x": umap_coords[:, 0], "umap_y": umap_coords[:, 1],
@@ -438,10 +441,16 @@ def build_interactive_html_batch(
     marker_data = _build_batch_compare_data(
         icls_full_dict, full_gene_lists, n_top, icls_cell_counts, batch_expression,
     )
-    colors = _assign_icls_colors(adata)
+    icls_colors = _assign_icls_colors(adata)
     umap_json = df[["umap_x", "umap_y", "icls"]].to_dict(orient="list")
     centroids = df.groupby("icls")[["umap_x", "umap_y"]].median().reset_index()
     centroids_json = centroids.to_dict(orient="list")
+
+    # ── Batch colors (for legend display) ────────────────────────
+    batches_list = list(next(iter(batch_expression.values())).batches)
+    n_b = len(batches_list)
+    _cmap = _cm.tab10 if n_b <= 10 else _cm.tab20
+    batch_colors = {b: _mc.to_hex(_cmap(i)) for i, b in enumerate(batches_list)}
 
     # ── HTML ─────────────────────────────────────────────────────
     html = f"""<!DOCTYPE html>
@@ -455,28 +464,20 @@ def build_interactive_html_batch(
   body {{ font-family: 'Segoe UI', Tahoma, sans-serif; background: #f5f5f5; }}
   #container {{ display: flex; height: 100vh; }}
   #umap-panel {{ width: 550px; min-width: 400px; padding: 10px; display: flex; align-items: center; justify-content: center; }}
-  #marker-panel {{
-    flex: 1; padding: 16px; overflow: auto;
-    background: white; border-left: 1px solid #ddd;
-    box-shadow: -2px 0 8px rgba(0,0,0,0.05);
-  }}
+  #marker-panel {{ flex: 1; padding: 16px; overflow: auto; background: white; border-left: 1px solid #ddd; box-shadow: -2px 0 8px rgba(0,0,0,0.05); }}
   #marker-panel h2 {{ font-size: 15px; margin-bottom: 8px; color: #333; }}
-  #marker-panel .info {{ font-size: 12px; color: #666; margin-bottom: 12px; }}
-  #marker-panel .placeholder {{
-    color: #999; font-size: 13px; margin-top: 40px; text-align: center;
-  }}
+  .placeholder {{ color: #999; font-size: 13px; margin-top: 40px; text-align: center; }}
+  .info {{ font-size: 12px; color: #666; margin-bottom: 12px; }}
   table.heatmap {{ border-collapse: collapse; font-size: 11px; }}
-  table.heatmap th, table.heatmap td {{
-    text-align: center; padding: 0;
-  }}
+  table.heatmap th, table.heatmap td {{ text-align: center; padding: 0; }}
   table.heatmap th:first-child {{ padding: 3px 8px; white-space: nowrap; }}
   table.heatmap td:first-child {{ padding: 3px 8px; white-space: nowrap; text-align: left; font-weight: bold; }}
   table.heatmap th {{ background: #f0f0f0; position: sticky; top: 0; z-index: 1; }}
   .legend-row {{ display: flex; align-items: center; gap: 12px; font-size: 11px; color: #666; margin-top: 10px; flex-wrap: wrap; }}
   .legend-swatch {{ display: inline-block; width: 14px; height: 14px; vertical-align: middle; border: 1px solid #aaa; margin-right: 3px; }}
   .batch-legend {{ display: flex; flex-wrap: wrap; gap: 6px; font-size: 11px; margin-top: 8px; }}
-  .batch-legend-item {{ display: flex; align-items: center; gap: 3px; white-space: nowrap; }}
-  .batch-dot {{ width: 10px; height: 10px; border-radius: 2px; border: 1px solid #aaa; flex-shrink: 0; }}
+  .batch-legend-item {{ display: flex; align-items: center; gap: 3px; white-space: nowrap; padding: 2px 5px; }}
+  .batch-dot {{ width: 10px; height: 10px; border-radius: 2px; border: 1px solid #999; flex-shrink: 0; }}
 </style>
 </head>
 <body>
@@ -492,157 +493,152 @@ def build_interactive_html_batch(
 </div>
 
 <script>
+// ── Data ──────────────────────────────────────────────────────
 const umapData = {json.dumps(umap_json)};
 const markerData = {json.dumps(marker_data)};
 const centroids = {json.dumps(centroids_json)};
-const iclsColors = {json.dumps(colors)};
+const iclsColors = {json.dumps(icls_colors)};
+const batchColors = {json.dumps(batch_colors)};
+const N_TOP = {n_top};
 
-// ── UMAP plot ──────────────────────────────────────────────────
-const iclsSet = [...new Set(umapData.icls)];
-const groups = {{}};
+// ── State ─────────────────────────────────────────────────────
+let selectedIcls = null;
+
+// ── Pre-group cells by icls ───────────────────────────────────
+const iclsGroups = {{}};
 for (let i = 0; i < umapData.icls.length; i++) {{
-  const id = umapData.icls[i];
-  if (!groups[id]) groups[id] = {{x: [], y: []}};
-  groups[id].x.push(umapData.umap_x[i]);
-  groups[id].y.push(umapData.umap_y[i]);
+  const ic = String(umapData.icls[i]);
+  if (!iclsGroups[ic]) iclsGroups[ic] = {{x:[], y:[]}};
+  iclsGroups[ic].x.push(umapData.umap_x[i]);
+  iclsGroups[ic].y.push(umapData.umap_y[i]);
 }}
+const sortedIcls = Object.keys(iclsGroups).sort((a,b) => parseInt(a) - parseInt(b));
 
-const traces = [];
-for (const id of iclsSet.sort((a,b) => parseInt(a) - parseInt(b))) {{
-  traces.push({{
-    x: groups[id].x, y: groups[id].y,
-    mode: 'markers', type: 'scattergl',
-    name: 'icls ' + id,
-    marker: {{ color: iclsColors[id], size: 2, opacity: 0.5 }},
-    hoverinfo: 'skip', showlegend: false,
-  }});
-}}
-
-traces.push({{
-  x: centroids.umap_x, y: centroids.umap_y,
-  mode: 'markers', type: 'scattergl',
-  marker: {{ size: 22, color: 'rgba(0,0,0,0)', line: {{ width: 0 }} }},
-  customdata: centroids.icls,
-  hoverinfo: 'text',
-  hovertext: centroids.icls.map(id => 'icls ' + id),
-  showlegend: false,
-}});
-
+// ── Centroid annotations ──────────────────────────────────────
 const outlineOffsets = [[-0.8,0],[0.8,0],[0,-0.8],[0,0.8]];
 const annotations = [];
 for (let i = 0; i < centroids.icls.length; i++) {{
   const id = centroids.icls[i];
   const cx = centroids.umap_x[i], cy = centroids.umap_y[i];
   for (const [dx, dy] of outlineOffsets) {{
-    annotations.push({{ x: cx, y: cy, text: '<b>' + id + '</b>', showarrow: false,
-      xshift: dx, yshift: dy, font: {{ size: 11, color: '#fff', family: 'Arial, sans-serif' }} }});
+    annotations.push({{x:cx, y:cy, text:'<b>'+id+'</b>', showarrow:false,
+      xshift:dx, yshift:dy, font:{{size:11, color:'#fff', family:'Arial, sans-serif'}}}});
   }}
-  annotations.push({{ x: cx, y: cy, text: '<b>' + id + '</b>', showarrow: false,
-    font: {{ size: 11, color: '#000', family: 'Arial, sans-serif' }} }});
+  annotations.push({{x:cx, y:cy, text:'<b>'+id+'</b>', showarrow:false,
+    font:{{size:11, color:'#000', family:'Arial, sans-serif'}}}});
 }}
 
-Plotly.newPlot('umap-plot', traces, {{
-  title: 'UMAP — icls (click a label)',
-  xaxis: {{ title: 'UMAP1', zeroline: false }},
-  yaxis: {{ title: 'UMAP2', zeroline: false }},
-  showlegend: false,
-  margin: {{ l: 50, r: 10, t: 40, b: 40 }},
-  hovermode: 'closest',
-  annotations: annotations,
-}}, {{responsive: true}});
+const iclsLayout = {{
+  title: 'UMAP — icls (click to highlight)',
+  xaxis: {{title:'UMAP1', zeroline:false}},
+  yaxis: {{title:'UMAP2', zeroline:false}},
+  showlegend: false, margin: {{l:50, r:10, t:40, b:40}},
+  hovermode: 'closest', annotations: annotations,
+}};
 
-// ── Batch heatmap rendering ────────────────────────────────────
+// ── icls traces ───────────────────────────────────────────────
+function buildIclsTraces(highlight) {{
+  const traces = sortedIcls.map(id => ({{
+    x: iclsGroups[id].x, y: iclsGroups[id].y,
+    mode: 'markers', type: 'scattergl',
+    marker: {{
+      color: iclsColors[id],
+      size: highlight === id ? 4 : 2,
+      opacity: highlight == null ? 0.5 : (highlight === id ? 0.9 : 0.1),
+    }},
+    hoverinfo: 'skip', showlegend: false,
+  }}));
+  traces.push({{
+    x: centroids.umap_x, y: centroids.umap_y,
+    mode: 'markers', type: 'scattergl',
+    marker: {{size:22, color:'rgba(0,0,0,0)', line:{{width:0}}}},
+    customdata: centroids.icls,
+    hoverinfo: 'text', hovertext: centroids.icls.map(id => 'icls '+id),
+    showlegend: false,
+  }});
+  return traces;
+}}
+
+// Initial render
+Plotly.newPlot('umap-plot', buildIclsTraces(null), iclsLayout, {{responsive:true}});
+
+// ── UMAP click → icls highlight + heatmap ────────────────────
+document.getElementById('umap-plot').on('plotly_click', function(data) {{
+  const pt = data.points[0];
+  const icls = pt.customdata;
+  if (!icls) return;
+  selectedIcls = selectedIcls === icls ? null : icls;
+  Plotly.react('umap-plot', buildIclsTraces(selectedIcls), iclsLayout);
+  if (!markerData[icls]) return;
+  const panel = document.getElementById('marker-content');
+  document.querySelector('.placeholder').style.display = 'none';
+  panel.style.display = 'block';
+  panel.innerHTML = renderBatchHeatmap(markerData[icls]);
+}});
+
+// ── Heatmap render ────────────────────────────────────────────
 function redsColor(v) {{
-  // Approximate matplotlib Reds colormap
-  const r = Math.round(255 - v * 152);
-  const g = Math.round(245 - v * 245);
-  const b = Math.round(240 - v * 227);
-  return `rgb(${{r}},${{g}},${{b}})`;
+  return 'rgb(' + Math.round(255-v*152) + ',' + Math.round(245-v*245) + ',' + Math.round(240-v*227) + ')';
 }}
 
 function renderBatchHeatmap(d) {{
-  const {{ genes, levels, batches, batch_vals, presence, n_cells }} = d;
-  const CELL_H = 22;
-  const LABEL_W = 130;
-  const cellW = 26;
+  const genes = d.genes, levels = d.levels, batches = d.batches;
+  const batch_vals = d.batch_vals, presence = d.presence, n_cells = d.n_cells;
+  const CELL_H = 22, LABEL_W = 130, cellW = 26;
   const tableW = LABEL_W + genes.length * cellW;
 
   let html = '<div class="info">';
-  html += `<b>icls ${{d.path.split('|').join(' → ')}}</b> &nbsp; (${{n_cells}} cells)<br>`;
-  html += levels.map(l => `<code>${{l}}</code>`).join(' &rarr; ');
+  html += '<b>icls ' + d.path.split('|').join(' \u2192 ') + '</b> &nbsp; (' + n_cells + ' cells)<br>';
+  html += levels.map(l => '<code>' + l + '</code>').join(' \u2192 ');
   html += '</div>';
 
-  html += `<table class="heatmap" style="width:${{tableW}}px;"><thead><tr>`;
-  html += `<th style="width:${{LABEL_W}}px;"></th>`;
+  html += '<table class="heatmap" style="width:' + tableW + 'px;"><thead><tr>';
+  html += '<th style="width:' + LABEL_W + 'px;"></th>';
   for (const g of genes) {{
-    html += `<th style="width:${{cellW}}px;"><div style="writing-mode:vertical-rl; transform:rotate(180deg); padding:2px 0;">${{g}}</div></th>`;
+    html += '<th style="width:' + cellW + 'px;">' +
+            '<div style="writing-mode:vertical-rl; transform:rotate(180deg); padding:2px 0;">' + g + '</div></th>';
   }}
   html += '</tr></thead><tbody>';
 
   for (let i = 0; i < levels.length; i++) {{
-    html += `<tr><td>${{levels[i]}}</td>`;
+    html += '<tr><td>' + levels[i] + '</td>';
     for (let j = 0; j < genes.length; j++) {{
       const gene = genes[j];
       const inSet = presence[gene][i];
       if (!inSet) {{
-        html += `<td style="background:#f5f5f5; border:1px solid #e0e0e0; height:${{CELL_H}}px;"></td>`;
+        html += '<td style="background:#f5f5f5; border:1px solid #e0e0e0; height:' + CELL_H + 'px;"></td>';
       }} else {{
-        const vals = batch_vals[i][j]; // [[batch_name, value_or_null], ...]
-        let strips = `<div style="display:flex; height:${{CELL_H}}px; width:${{cellW}}px;">`;
-        for (let b = 0; b < vals.length; b++) {{
-          const [bname, v] = vals[b];
-          let bg;
-          if (v === null) {{
-            bg = '#cccccc';
-          }} else if (v === 0) {{
-            bg = 'white';
-          }} else {{
-            bg = redsColor(v);
-          }}
-          const tip = v === null ? `${{bname}}: no cells` : `${{bname}}: ${{v.toFixed(3)}}`;
-          strips += `<div style="flex:1; background:${{bg}};" title="${{tip}}"></div>`;
+        const vals = batch_vals[i][j];
+        let strips = '<div style="display:flex; height:' + CELL_H + 'px; width:' + cellW + 'px;">';
+        for (const [bname, v] of vals) {{
+          const bg = v === null ? '#cccccc' : (v === 0 ? 'white' : redsColor(v));
+          const tip = v === null ? bname + ': no cells' : bname + ': ' + v.toFixed(3);
+          strips += '<div style="flex:1; background:' + bg + ';" title="' + tip + '"></div>';
         }}
         strips += '</div>';
-        html += `<td style="padding:0; border:1px solid #444;">${{strips}}</td>`;
+        html += '<td style="padding:0; border:1px solid #444;">' + strips + '</td>';
       }}
     }}
     html += '</tr>';
   }}
   html += '</tbody></table>';
 
-  // Legend
   html += '<div class="legend-row">';
-  html += '<span><span class="legend-swatch" style="background:#cccccc;"></span>no cells in batch</span>';
-  html += '<span><span class="legend-swatch" style="background:white;"></span>expr = 0</span>';
-  html += `<span><span class="legend-swatch" style="background:${{redsColor(0.7)}};"></span>mean expr (per-cell max = 1)</span>`;
-  html += '<span><span class="legend-swatch" style="background:#f5f5f5; border:1px solid #e0e0e0;"></span>not in top-{n_top}</span>';
+  html += '<span><span class="legend-swatch" style="background:#cccccc;"></span>no cells</span>';
+  html += '<span><span class="legend-swatch" style="background:white;"></span>expr=0</span>';
+  html += '<span><span class="legend-swatch" style="background:' + redsColor(0.7) + ';"></span>mean expr (per-cell max=1)</span>';
+  html += '<span><span class="legend-swatch" style="background:#f5f5f5; border:1px solid #e0e0e0;"></span>not in top-' + N_TOP + '</span>';
   html += '</div>';
 
-  // Batch color index
-  const batchColors = batches.map((_, b) => {{
-    const hue = Math.round(b * 360 / batches.length);
-    return `hsl(${{hue}}, 60%, 60%)`;
-  }});
   html += '<div class="batch-legend">';
-  for (let b = 0; b < batches.length; b++) {{
-    html += `<div class="batch-legend-item"><div class="batch-dot" style="background:${{batchColors[b]}};"></div>${{batches[b]}}</div>`;
+  for (const b of batches) {{
+    const col = batchColors[b] || '#aaa';
+    html += '<div class="batch-legend-item"><div class="batch-dot" style="background:' + col + ';"></div>' + b + '</div>';
   }}
   html += '</div>';
 
   return html;
 }}
-
-// ── Click handler ──────────────────────────────────────────────
-document.getElementById('umap-plot').on('plotly_click', function(data) {{
-  const pt = data.points[0];
-  const icls = pt.customdata;
-  if (!icls || !markerData[icls]) return;
-
-  const panel = document.getElementById('marker-content');
-  document.querySelector('.placeholder').style.display = 'none';
-  panel.style.display = 'block';
-  panel.innerHTML = renderBatchHeatmap(markerData[icls]);
-}});
 </script>
 </body>
 </html>
