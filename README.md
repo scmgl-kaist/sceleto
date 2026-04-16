@@ -23,7 +23,7 @@ result = scl.markers.marker(adata, groupby="cell_type")
 result.markers  # {'T_cell': ['CD3D', 'CD3E', ...], 'B_cell': ['MS4A1', ...], ...}
 
 # Dotplot
-scl.dotplot(adata, genes=result.markers, groupby="cell_type", n_top=5)
+scl.dotplot(adata, result.markers, "cell_type")
 
 # Cross-resolution hierarchy (3 leiden levels → icls)
 m1 = scl.markers.marker(adata, groupby="leiden_0.1")
