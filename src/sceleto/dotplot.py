@@ -15,8 +15,17 @@ from __future__ import annotations
 from typing import Dict, List, Optional, Sequence, Tuple, Union
 
 import numpy as np
+import pandas as pd
 import matplotlib.pyplot as plt
+from matplotlib import colormaps
+from matplotlib.colors import Normalize
+from matplotlib.cm import ScalarMappable
+import matplotlib.colorbar
+import matplotlib.gridspec as gridspec
 from scipy import sparse
+
+
+# ── Data computation ────────────────────────────────────────────────
 
 
 def _compute_group_stats(
@@ -65,78 +74,109 @@ def _compute_group_stats(
     return mean, frac, groups, valid_genes
 
 
-def _resolve_genes(
-    genes: Union[Sequence[str], Dict[str, list]],
-) -> List[str]:
-    """Convert gene input to a flat list with spacer separators.
+# ── Layout constants (adapted from scanpy BasePlot / DotPlot) ──────
 
-    Accepts:
-    - list of gene names: ['CD3D', 'CD8A']
-    - dict from marker output {cluster: [(gene, score), ...]}: uses gene names
-    - dict {cluster: [gene, ...]}: flat gene lists
+_CELL_HEIGHT = 0.35           # inches per group-axis item
+_CELL_WIDTH = 0.35            # inches per gene-axis item
+_MIN_FIGURE_HEIGHT = 2.5      # minimum so legends always fit
+_LEGENDS_WIDTH = 2.0          # inches for right-side legend panel
+_X_PADDING = 0.8              # x-axis padding (dot-center to border)
+_Y_PADDING = 1.0              # y-axis padding
+
+_DEFAULT_LARGEST_DOT = 200.0
+_DEFAULT_SMALLEST_DOT = 0.0
+_DEFAULT_SIZE_EXPONENT = 1.5
+
+
+# ── Legend helpers (adapted from scanpy DotPlot._plot_legend) ───────
+
+
+def _plot_size_legend(ax, dot_max, dot_min, largest_dot, smallest_dot,
+                      size_exponent):
+    """Render fraction-of-cells size legend (scanpy style)."""
+    diff = dot_max - dot_min
+    if diff > 0.6:
+        step = 0.2
+    elif diff > 0.3:
+        step = 0.1
+    else:
+        step = 0.05
+
+    size_range = np.arange(dot_max, dot_min, -step)[::-1]
+    if dot_min != 0 or dot_max != 1:
+        dot_range = dot_max - dot_min
+        size_values = (size_range - dot_min) / dot_range
+    else:
+        size_values = size_range
+
+    sizes = size_values ** size_exponent
+    sizes = sizes * (largest_dot - smallest_dot) + smallest_dot
+
+    ax.scatter(
+        np.arange(len(sizes)) + 0.5,
+        np.repeat(0, len(sizes)),
+        s=sizes, color="gray", zorder=100,
+    )
+    ax.set_xticks(np.arange(len(sizes)) + 0.5)
+    labels = [f"{int(np.round(x * 100))}" for x in size_range]
+    ax.set_xticklabels(labels, fontsize="small")
+    ax.tick_params(axis="y", left=False, labelleft=False, labelright=False)
+    for spine in ax.spines.values():
+        spine.set_visible(False)
+    ax.grid(visible=False)
+
+    ymax = ax.get_ylim()[1]
+    ax.set_ylim(-1.05 - largest_dot * 0.003, 4)
+    ax.set_title("Fraction of cells\nin group (%)", y=ymax + 0.45, size="small")
+    xmin, xmax = ax.get_xlim()
+    ax.set_xlim(xmin - 0.15, xmax + 0.5)
+
+
+def _plot_legends(fig, legend_spec, height, dot_max, dot_min,
+                  norm, cmap_obj, largest_dot, smallest_dot,
+                  size_exponent,
+                  show_size_legend=True, show_colorbar=True):
+    """Plot size legend + colorbar in the right panel (scanpy style).
+
+    Uses a 4-row sub-gridspec: [spacer | size legend | spacer | colorbar].
     """
-    if isinstance(genes, dict):
-        gene_list = []
-        for group in sorted(genes.keys()):
-            items = genes[group]
-            for item in items:
-                if isinstance(item, tuple):
-                    gene_list.append(item[0])
-                else:
-                    gene_list.append(str(item))
-            gene_list.append(" ")  # spacer between groups
-        return gene_list
+    min_h = max(_MIN_FIGURE_HEIGHT, height)
 
-    return list(genes)
+    cbar_h = min_h * 0.08
+    size_h = min_h * 0.27
+    spacer_h = min_h * 0.15   # tighter gap between size legend & colorbar
+    top_h = max(height - size_h - cbar_h - spacer_h, 0)
+
+    leg_gs = legend_spec.subgridspec(
+        4, 1, height_ratios=[top_h, size_h, spacer_h, cbar_h],
+    )
+
+    # hide the container axis
+    container = fig.add_subplot(legend_spec)
+    container.set_axis_off()
+
+    # ── size legend ──
+    if show_size_legend:
+        size_ax = fig.add_subplot(leg_gs[1])
+        _plot_size_legend(size_ax, dot_max, dot_min,
+                          largest_dot, smallest_dot,
+                          size_exponent)
+
+    # ── colorbar (narrower: ~50% of legend panel width) ──
+    if show_colorbar:
+        cbar_inner = leg_gs[3].subgridspec(
+            1, 2, width_ratios=[1, 1], wspace=0,
+        )
+        cbar_ax = fig.add_subplot(cbar_inner[0, 0])
+        mappable = ScalarMappable(norm=norm, cmap=cmap_obj)
+        cb = matplotlib.colorbar.Colorbar(
+            cbar_ax, mappable=mappable, orientation="horizontal",
+        )
+        cb.ax.xaxis.set_tick_params(labelsize="small")
+        cb.ax.set_title("Mean expression\n(normalized)", fontsize="small")
 
 
-def dotplot_size_legend(
-    figscale: float = 0.25,
-    fracs: Sequence[float] = (0.25, 0.50, 0.75, 1.00),
-    fontsize: int = 10,
-    save: Optional[str] = None,
-    show: bool = True,
-):
-    """Standalone size legend for dotplot (fraction expressing).
-
-    Use this alongside dotplot() to show what dot sizes mean.
-
-    Parameters
-    ----------
-    figscale
-        Should match the figscale used in dotplot().
-    fracs
-        Fraction values to show in the legend.
-    fontsize
-        Font size for labels.
-    save
-        Path to save figure as PDF.
-    show
-        Whether to call plt.show().
-
-    Returns
-    -------
-    fig, ax
-    """
-    dot_scale = figscale * 400
-    n = len(fracs)
-    fig, ax = plt.subplots(figsize=(0.9 * n + 1.5, 0.8))
-    ax.set_xlim(-0.5, n - 0.5)
-    ax.set_ylim(-0.5, 0.5)
-    ax.set_axis_off()
-
-    for i, f in enumerate(fracs):
-        ax.scatter([i], [0.1], s=f * dot_scale, c="grey", edgecolors="none")
-        ax.text(i, -0.25, f"{int(f*100)}", fontsize=fontsize, ha="center", va="top")
-
-    ax.set_title("Fraction\nexpressing (%)", fontsize=fontsize, pad=10)
-
-    if save:
-        plt.savefig(save, bbox_inches="tight", format="pdf", dpi=300)
-    if show:
-        plt.show()
-
-    return fig, ax
+# ── Main dotplot function ──────────────────────────────────────────
 
 
 def dotplot(
@@ -148,211 +188,223 @@ def dotplot(
     n_top: Optional[int] = None,
     transpose: bool = False,
     use_raw: bool = True,
-    fontsize: int = 10,
-    figscale: float = 0.25,
     min_frac: float = 0.01,
     cmap: str = "OrRd",
-    size_legend: bool = True,
+    largest_dot: float = _DEFAULT_LARGEST_DOT,
+    smallest_dot: float = _DEFAULT_SMALLEST_DOT,
+    size_exponent: float = _DEFAULT_SIZE_EXPONENT,
+    grid: bool = False,
+    figsize: Optional[Tuple[float, float]] = None,
     save: Optional[str] = None,
     show: bool = True,
+    # deprecated
+    figscale: Optional[float] = None,
 ):
     """Dotplot of gene expression across groups.
 
-    Size = fraction of cells expressing the gene.
-    Color = normalized mean expression (per-gene, 0-1).
+    Size encodes fraction of cells expressing the gene.
+    Color encodes mean expression, normalized per gene (value / max).
+
+    Layout adapts automatically to the number of genes and groups,
+    allocating a fixed physical size per dot cell.
 
     Parameters
     ----------
     adata
         AnnData object.
     genes
-        Gene names as a list, or marker dict {group: [(gene, score), ...]}.
+        Gene names as a list, or marker dict ``{group: [(gene, score), ...]}``.
     groupby
-        Column in adata.obs to group cells by.
+        Column in ``adata.obs`` to group cells by.
     groups
-        Subset of groups to show. If None, show all.
+        Subset of groups to show.  If ``None``, show all.
     n_top
-        When genes is a dict, limit to top-n per group.
+        When *genes* is a dict, keep only the top-n per group.
     transpose
-        If True, genes on x-axis and groups on y-axis.
+        If ``True``, genes on x-axis (top) and groups on y-axis.
+        Default puts genes on y-axis and groups on x-axis.
     use_raw
-        If True, use adata.raw for expression values.
-    fontsize
-        Font size for tick labels.
-    figscale
-        Scaling factor for figure and dot sizes.
+        Use ``adata.raw`` for expression values.
     min_frac
-        Minimum fraction expressing to show a dot (below → size 0).
+        Fractions below this are set to zero (dot hidden).
     cmap
-        Colormap for mean expression.
+        Matplotlib colormap name for mean expression.
+    largest_dot
+        Dot size in points² for fraction = 1.0.
+    smallest_dot
+        Dot size in points² for fraction = 0.0.
+    size_exponent
+        Exponent applied to fraction before size scaling.  Values > 1
+        increase contrast between small and large dots.
+    grid
+        Show background grid lines.
+    figsize
+        Manual ``(width, height)`` in inches.  Overrides auto-sizing.
     save
-        Path to save figure as PDF.
+        Path to save figure (PDF, dpi=300).
     show
-        Whether to call plt.show().
+        Whether to call ``plt.show()``.
 
     Returns
     -------
     fig, ax
     """
-    # resolve genes
-    gene_list = _resolve_genes(genes)
-    if n_top is not None and isinstance(genes, dict):
-        gene_list = []
-        for group_key in sorted(genes.keys()):
-            items = genes[group_key]
-            for item in items[:n_top]:
-                gene_list.append(item[0] if isinstance(item, tuple) else str(item))
-            gene_list.append(" ")
+    # back-compat
+    if figscale is not None:
+        largest_dot = figscale * 400
 
-    # separate real genes from spacers
-    real_genes = [g for g in gene_list if g.strip()]
+    # ── 1. Resolve gene input ───────────────────────────────────────
+    if isinstance(genes, dict):
+        ordered_genes: List[str] = []
+        for gk in sorted(genes.keys()):
+            items = genes[gk]
+            for item in items[:n_top] if n_top else items:
+                g = item[0] if isinstance(item, tuple) else str(item)
+                ordered_genes.append(g)
+    else:
+        ordered_genes = list(genes)
 
-    # compute stats
+    # ── 2. Compute stats (our way) ─────────────────────────────────
     mean, frac, all_groups, valid_genes = _compute_group_stats(
-        adata, groupby, real_genes, use_raw=use_raw,
+        adata, groupby, ordered_genes, use_raw=use_raw,
     )
 
     if groups is not None:
-        group_idx = [i for i, g in enumerate(all_groups) if g in set(groups)]
-        all_groups = [all_groups[i] for i in group_idx]
-        mean = mean[group_idx]
-        frac = frac[group_idx]
+        gset = set(groups)
+        idx = [i for i, g in enumerate(all_groups) if g in gset]
+        all_groups = [all_groups[i] for i in idx]
+        mean = mean[idx]
+        frac = frac[idx]
 
-    gene_to_col = {g: i for i, g in enumerate(valid_genes)}
-    n_groups = len(all_groups)
+    # keep only valid genes, preserve input order
+    valid_set = set(valid_genes)
+    display_genes = [g for g in ordered_genes if g in valid_set]
+    gidx = {g: i for i, g in enumerate(valid_genes)}
+    cols = [gidx[g] for g in display_genes]
 
-    # build scatter data
-    sizes = []
-    colors = []
-    pos_major = []
-    pos_minor = []
-    ticks_major = []
-    ticklabels_major = []
+    # ── 3. Build DataFrames (groups × genes) ───────────────────────
+    color_df = pd.DataFrame(mean[:, cols], index=all_groups, columns=display_genes)
+    size_df = pd.DataFrame(frac[:, cols], index=all_groups, columns=display_genes)
 
-    major_idx = 0
-    iterate = gene_list[::-1] if not transpose else gene_list
+    # ── 4. Normalize color: value / max per gene ───────────────────
+    gmax = color_df.max(axis=0)
+    gmax[gmax == 0] = 1
+    color_df = color_df / gmax
 
-    for gene in iterate:
-        if gene.strip() and gene in gene_to_col:
-            major_idx += 1
-            col = gene_to_col[gene]
+    # ── 5. Apply min_frac ──────────────────────────────────────────
+    size_df[size_df < min_frac] = 0
 
-            frac_vals = frac[:, col].copy()
-            frac_vals[frac_vals < min_frac] = 0
-            mean_vals = mean[:, col].copy()
-            max_mean = np.max(mean_vals)
-            norm_vals = (mean_vals / max_mean) if max_mean > 0 else mean_vals
+    # ── 6. Orient for display ──────────────────────────────────────
+    #   default  : y = genes, x = groups  →  transpose the DFs
+    #   transpose: y = groups, x = genes  →  keep as-is
+    if not transpose:
+        color_df = color_df.T
+        size_df = size_df.T
 
-            sizes.extend(frac_vals)
-            colors.extend(norm_vals)
-            ticks_major.append(major_idx)
-            ticklabels_major.append(gene)
-        else:
-            major_idx += 0.5
-            sizes.extend([0] * n_groups)
-            colors.extend([0] * n_groups)
+    n_rows, n_cols = color_df.shape
 
-        if transpose:
-            pos_major.extend([major_idx] * n_groups)
-            pos_minor.extend(list(range(n_groups))[::-1])
-        else:
-            pos_minor.extend(list(range(n_groups)))
-            pos_major.extend([major_idx] * n_groups)
-
-    sizes = np.array(sizes)
-    colors = np.array(colors)
-
-    # figure — figscale controls both spacing and dot size
-    dot_scale = figscale * 400
-
-    if transpose:
-        fw = len(gene_list) * figscale * 0.45
-        fh = n_groups * figscale * 0.55
+    # ── 7. Figure size (scanpy cell-unit approach) ─────────────────
+    # Match scanpy's swap_axes behavior: taller cells for the gene axis,
+    # narrower cells for the group axis.
+    if figsize is not None:
+        fig_w, fig_h = figsize
     else:
-        fw = n_groups * figscale * 0.65
-        fh = len(gene_list) * figscale * 0.55
+        if not transpose:
+            # genes on y → taller cells; groups on x → narrower cells
+            mainplot_h = n_rows * _CELL_WIDTH    # 0.37 per gene
+            mainplot_w = n_cols * _CELL_HEIGHT   # 0.35 per group
+        else:
+            # groups on y → shorter cells; genes on x → wider cells
+            mainplot_h = n_rows * _CELL_HEIGHT   # 0.35 per group
+            mainplot_w = n_cols * _CELL_WIDTH    # 0.37 per gene
+        fig_h = max(_MIN_FIGURE_HEIGHT, mainplot_h + 1.0)
+        fig_w = mainplot_w + _LEGENDS_WIDTH
 
-    fig, ax = plt.subplots(figsize=(fw, fh))
+    # ── 8. Figure + GridSpec ───────────────────────────────────────
+    # Apply style matching sc.settings.set_figure_params + sns ticks
+    import seaborn as sns
+    import matplotlib as mpl
+    sns.set_style("ticks")
+    mpl.rcParams.update({
+        "pdf.fonttype": 42, "ps.fonttype": 42,
+        "font.size": 14,
+        "font.sans-serif": ["Arial", "DejaVu Sans", "Liberation Sans",
+                            "Bitstream Vera Sans", "sans-serif"],
+        "xtick.labelsize": 14, "ytick.labelsize": 14,
+        "axes.labelsize": 14, "axes.titlesize": 14,
+        "axes.facecolor": "white", "figure.facecolor": "white",
+        "savefig.dpi": 150,
+    })
 
-    if transpose:
-        sc = ax.scatter(
-            pos_major, pos_minor,
-            s=sizes * dot_scale, c=colors, cmap=cmap, vmax=1.0,
-        )
-        ax.xaxis.tick_top()
-        ax.set_xticks(ticks_major)
-        ax.set_xticklabels(ticklabels_major, rotation=90, fontsize=fontsize)
-        ax.set_yticks(range(n_groups))
-        ax.set_yticklabels(all_groups[::-1], fontsize=fontsize)
+    fig = plt.figure(figsize=(fig_w, fig_h))
+
+    mainplot_w_frac = fig_w - _LEGENDS_WIDTH
+    gs = gridspec.GridSpec(
+        1, 2,
+        width_ratios=[mainplot_w_frac, _LEGENDS_WIDTH],
+        wspace=1.2 / fig_w,
+        figure=fig,
+    )
+    ax = fig.add_subplot(gs[0, 0])
+
+    # ── 9. Plot dots (scanpy-style 0.5-offset grid) ───────────────
+    y, x = np.indices(color_df.shape)
+    y = y.flatten() + 0.5
+    x = x.flatten() + 0.5
+
+    frac_flat = size_df.values.flatten()
+    mean_flat = color_df.values.flatten()
+
+    # dot_max / dot_min
+    dot_max = np.ceil(np.max(frac_flat) * 10) / 10 if np.max(frac_flat) > 0 else 1.0
+    dot_min = 0.0
+
+    # rescale frac to 0–1 within [dot_min, dot_max], then apply exponent
+    if dot_min != 0 or dot_max != 1:
+        frac_normed = np.clip(frac_flat, dot_min, dot_max)
+        frac_normed = (frac_normed - dot_min) / (dot_max - dot_min)
     else:
-        sc = ax.scatter(
-            pos_minor, pos_major,
-            s=sizes * dot_scale, c=colors, cmap=cmap, vmax=1.0,
-        )
-        ax.set_xticks(range(n_groups))
-        ax.set_xticklabels(all_groups, rotation=90, fontsize=fontsize)
-        ax.set_yticks(ticks_major)
-        ax.set_yticklabels(ticklabels_major, fontsize=fontsize)
+        frac_normed = frac_flat.copy()
 
-    if pos_minor:
-        ax.set_xlim(min(pos_minor) - 0.5, max(pos_minor) + 0.5)
-    if pos_major:
-        ax.set_ylim(min(pos_major) - 0.5, max(pos_major) + 0.5)
-    ax.grid(False)
+    size = frac_normed ** size_exponent
+    size = size * (largest_dot - smallest_dot) + smallest_dot
+    size[frac_flat == 0] = 0  # hide zeros
 
-    # Colorbar — thin vertical bar on the right (matching dotplot height)
-    from mpl_toolkits.axes_grid1 import make_axes_locatable
-    divider = make_axes_locatable(ax)
-    cbar_size = "2%" if transpose else "5%"
-    cax = divider.append_axes("right", size=cbar_size, pad=0.05)
-    cbar = plt.colorbar(sc, cax=cax)
-    cbar.set_label("Mean expr\n(normalized)", fontsize=fontsize)
-    cbar.ax.tick_params(labelsize=fontsize)
+    # color
+    cmap_obj = colormaps.get_cmap(cmap)
+    norm = Normalize(vmin=0, vmax=1)
+    color = cmap_obj(norm(mean_flat))
 
-    # Size legend — below the dotplot
-    if size_legend:
-        legend_fracs = [0.25, 0.50, 0.75, 1.00]
-        leg_inches = 0.8
+    ax.scatter(x, y, s=size, c=color)
 
-        fig.canvas.draw()
-        renderer = fig.canvas.get_renderer()
-        ax_tight = ax.get_tightbbox(renderer).transformed(fig.transFigure.inverted())
-        actual_bottom = ax_tight.y0
+    # ── 10. Axis formatting ────────────────────────────────────────
+    ax.set_yticks(np.arange(n_rows) + 0.5)
+    ax.set_yticklabels(color_df.index)
 
-        orig_w, orig_h = fig.get_size_inches()
-        new_h = orig_h + leg_inches
-        fig.set_size_inches(orig_w, new_h)
+    ax.set_xticks(np.arange(n_cols) + 0.5)
+    ax.set_xticklabels(color_df.columns, rotation=90, ha="center")
 
-        for a in fig.axes:
-            pos = a.get_position()
-            a.set_position([pos.x0,
-                            (pos.y0 * orig_h + leg_inches) / new_h,
-                            pos.width,
-                            pos.height * orig_h / new_h])
+    ax.tick_params(axis="both", labelsize="small")
+    ax.grid(visible=False)
 
-        actual_bottom_new = (actual_bottom * orig_h + leg_inches) / new_h
-        bbox = ax.get_position()
-        leg_h = (leg_inches * 0.55) / new_h
-        leg_y = actual_bottom_new - 0.04 - leg_h
+    # padding (scanpy default: x=0.8, y=1.0; adjusted for 0.5-offset)
+    ax.set_ylim(n_rows + (_Y_PADDING - 0.5), -(_Y_PADDING - 0.5))
+    ax.set_xlim(-(_X_PADDING - 0.5), n_cols + (_X_PADDING - 0.5))
 
-        # Place size legend dots aligned to first/last group x positions
-        # Use the dotplot axes itself to draw legend dots via figure transform
-        bbox = ax.get_position()
-        leg_ax = fig.add_axes([bbox.x0, leg_y, bbox.width, leg_h])
-        leg_ax.set_axis_off()
+    # gene labels always at bottom (x-axis default position)
 
-        # Map legend dot positions to dotplot group x coordinates
-        n_leg = len(legend_fracs)
-        leg_x_positions = np.linspace(0, n_groups - 1, n_leg)
-        leg_ax.set_xlim(ax.get_xlim())
-        leg_ax.set_ylim(-1.0, 1.0)
-        for xp, f in zip(leg_x_positions, legend_fracs):
-            leg_ax.scatter([xp], [0.2], s=f * dot_scale, c="grey", edgecolors="none")
-            leg_ax.text(xp, -0.5, f"{int(f*100)}", fontsize=fontsize,
-                        ha="center", va="top")
-        leg_ax.text((n_groups - 1) / 2, 1.0, "Fraction\nexpressing (%)",
-                    fontsize=fontsize, ha="center", va="bottom")
+    if grid:
+        ax.grid(visible=True, color="gray", linewidth=0.1)
+        ax.set_axisbelow(True)
 
+    # ── 11. Legends (right panel, scanpy style) ────────────────────
+    _plot_legends(
+        fig, gs[0, 1], fig_h,
+        dot_max, dot_min, norm, cmap_obj,
+        largest_dot, smallest_dot, size_exponent,
+    )
+
+    # ── 12. Save / show ────────────────────────────────────────────
     if save:
         plt.savefig(save, bbox_inches="tight", format="pdf", dpi=300)
     if show:
