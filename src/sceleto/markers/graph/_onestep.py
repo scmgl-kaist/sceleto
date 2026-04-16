@@ -36,10 +36,8 @@ class MarkerGraphRun:
     specific_ranking_df: pd.DataFrame
     _marker_log: Dict[str, List[str]]
 
-    # Batch-aware validation (None if batch_key was not provided)
+    # Batch key (None if not provided)
     batch_key: Optional[str] = None
-    batch_edge_fc_df: Optional[pd.DataFrame] = None
-    batch_stats_df: Optional[pd.DataFrame] = None
 
     # FC threshold sweep (None if thres_fc was not "auto")
     sweep_df: Optional[pd.DataFrame] = None
@@ -77,15 +75,13 @@ class MarkerGraphRun:
         from sceleto.markers._base import _flatten_markers
         return dotplot(self.ctx.adata, _flatten_markers(self.markers, n_top), self.ctx.groupby, **kwargs)
 
-    def batch_detail(
+    def batch_mean_detail(
         self,
         adata,
         gene: str,
         group: str,
-        *,
-        fc_threshold: Optional[float] = None,
     ):
-        """Inspect batch-pair FC for a specific (gene, group).
+        """Return per-batch mean expression for a specific (gene, group).
 
         Parameters
         ----------
@@ -95,26 +91,22 @@ class MarkerGraphRun:
             Marker gene name.
         group : str
             Cluster where the gene is highly expressed.
-        fc_threshold : float, optional
-            FC threshold for pass/fail.
 
         Returns
         -------
-        DataFrame with one row per batch pair, columns:
-            ``edge_start``, ``edge_end``, ``batch_start``, ``batch_end``,
-            ``mean_start``, ``mean_end``, ``fc``, ``n_cells_start``,
-            ``n_cells_end``, ``pass``.
+        DataFrame with columns:
+            ``edge_start``, ``edge_end``, ``batch``,
+            ``mean_start``, ``mean_end``, ``n_cells_start``, ``n_cells_end``.
         """
         if self.batch_key is None:
             raise ValueError(
-                "No batch data. Re-run run_marker_graph() with batch_key."
+                "No batch data. Re-run run_marker_graph() with batch_key='...'."
             )
-        from ._batch import get_batch_pair_detail
+        from ._batch import get_batch_mean_detail
 
-        return get_batch_pair_detail(
+        return get_batch_mean_detail(
             adata, self.ctx, self.edge_gene_df, self.batch_key,
             gene, group,
-            fc_threshold=fc_threshold,
         )
 
 
@@ -153,10 +145,11 @@ def run_marker_graph(
     # Graph/Viz defaults
     bidirectional: bool = True,
     node_size_scale: float = 10.0,
-    # Batch-aware validation
+    # Batch t-test (activated automatically when batch_key is provided)
     batch_key: Optional[str] = None,
     batch_min_cells: int = 5,
-    batch_fc_threshold: Optional[float] = None,
+    batch_ttest_alpha: float = 0.05,
+    batch_ttest_min_batches: int = 3,
 ) -> MarkerGraphRun:
     """One-step wrapper: context -> edge metrics -> labels -> viz -> specific marker discovery"""
     from ._context import build_context
@@ -190,14 +183,10 @@ def run_marker_graph(
     # --- Ensure PAGA positions exist; populate if missing or stale ---
     paga = adata.uns.get("paga", {})
     if "pos" not in paga or need_paga:
-        # Populate paga['pos'] without showing any output
-        # Prefer paga_compare; fallback to paga if something fails (e.g., missing embeddings)
         try:
             sc.pl.paga_compare(adata, show=False)
         except Exception:
             sc.pl.paga(adata, show=False)
-
-        # Close any figures created internally
         plt.close("all")
 
     # --- Auto threshold ---
@@ -237,6 +226,15 @@ def run_marker_graph(
         max_mean_low=max_mean_low,
         min_nexpr_any=min_nexpr_any,
     )
+    # --- Batch t-test filter (activated when batch_key is provided) ---
+    if batch_key is not None:
+        from ._batch import filter_edge_gene_df_by_ttest
+        edge_gene_df = filter_edge_gene_df_by_ttest(
+            adata, ctx, edge_gene_df, batch_key,
+            use_raw=use_raw, min_cells=batch_min_cells,
+            min_batches=batch_ttest_min_batches, alpha=batch_ttest_alpha, eps=eps,
+        )
+
     edge_fc, edge_delta = edge_gene_df_to_matrices(edge_gene_df)
 
     labels = label_levels(
@@ -296,41 +294,6 @@ def run_marker_graph(
         ["group", specific_score_col], ascending=[True, False]
     )
 
-    # --- Batch-aware validation (optional) ---
-    batch_edge_fc_df: Optional[pd.DataFrame] = None
-    batch_stats_df: Optional[pd.DataFrame] = None
-
-    if batch_key is not None:
-        from ._batch import (
-            compute_batch_edge_fc,
-            aggregate_batch_stats,
-            fill_propagated_batch_stats,
-        )
-
-        _use_raw = use_raw
-        _batch_fc_thr = batch_fc_threshold if batch_fc_threshold is not None else thres_fc
-
-        batch_edge_fc_df = compute_batch_edge_fc(
-            adata, ctx, edge_gene_df, batch_key,
-            use_raw=_use_raw, eps=eps,
-            min_cells=batch_min_cells,
-            fc_threshold=_batch_fc_thr,
-        )
-        batch_stats_df = aggregate_batch_stats(batch_edge_fc_df)
-
-        # Fill (group, gene) pairs from label propagation that have no edge
-        batch_stats_df = fill_propagated_batch_stats(
-            adata, ctx, specific_ranking_df, batch_stats_df, batch_key,
-            use_raw=_use_raw, eps=eps,
-            min_cells=batch_min_cells,
-            fc_threshold=_batch_fc_thr,
-        )
-
-        if not batch_stats_df.empty:
-            specific_ranking_df = specific_ranking_df.merge(
-                batch_stats_df, on=["group", "gene"], how="left",
-            )
-
     _marker_log = {str(g): [] for g in ctx.groups}
     for g, sdf in specific_ranking_df.groupby("group", sort=False):
         _marker_log[str(g)] = sdf["gene"].astype(str).tolist()
@@ -350,8 +313,6 @@ def run_marker_graph(
         specific_ranking_df=specific_ranking_df,
         _marker_log=_marker_log,
         batch_key=batch_key,
-        batch_edge_fc_df=batch_edge_fc_df,
-        batch_stats_df=batch_stats_df,
         sweep_df=sweep_df,
         suggested_thres_fc=suggested_thres_fc,
     )
