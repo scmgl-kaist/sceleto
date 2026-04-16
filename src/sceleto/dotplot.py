@@ -12,10 +12,13 @@ With a marker dict (bracket-grouped x-axis labels):
 
 from __future__ import annotations
 
+import warnings
 from collections.abc import Mapping, Sequence
 from typing import Optional, Tuple, Union
 
+import anndata
 import numpy as np
+import pandas as pd
 import matplotlib.pyplot as plt
 import scanpy as sc
 from scipy import sparse
@@ -27,13 +30,15 @@ _LAYER_NAME = "_scl_scaled"
 # ── helpers ─────────────────────────────────────────────────────────
 
 
-def _resolve_var_names(var_names, available: set):
+def _resolve_var_names(var_names, available: set, n_top: Optional[int] = None):
     """Return ``(var_group_dict_or_None, flat_gene_list)``.
 
     - If *var_names* is a mapping, keep the mapping structure so scanpy
       renders bracket-grouped x-axis labels.  Tuple entries ``(gene, score)``
       are accepted.
-    - Genes absent from *available* are dropped; empty groups are dropped.
+    - *n_top*: if set, take at most this many genes per group (in order).
+    - Groups with no valid genes are silently dropped.
+    - Genes absent from *available* are dropped.
     """
     if isinstance(var_names, Mapping):
         clean: dict = {}
@@ -43,12 +48,41 @@ def _resolve_var_names(var_names, available: set):
                 g = it[0] if isinstance(it, tuple) else str(it)
                 if g in available:
                     names.append(g)
-            if names:
+                    if n_top is not None and len(names) >= n_top:
+                        break
+            if names:  # groups with no valid genes are silently dropped
                 clean[k] = names
-        flat = [g for gs in clean.values() for g in gs]
+        # deduplicate while preserving order (same gene can appear in multiple groups)
+        seen: set = set()
+        flat = []
+        for g in (g for gs in clean.values() for g in gs):
+            if g not in seen:
+                flat.append(g)
+                seen.add(g)
         return clean, flat
     flat = [g for g in var_names if g in available]
     return None, flat
+
+
+def _check_log1p_normalized(X, label: str = "adata.X"):
+    """Check if *X* looks like log1p-normalized data.
+
+    - Negative values → ``ValueError`` (definitive failure).
+    - Max > 30 → ``UserWarning`` only (heuristic; proceed anyway).
+    """
+    x_sub = X[: min(500, X.shape[0])]
+    min_val = float(np.asarray(x_sub.min() if sparse.issparse(x_sub) else x_sub.min()))
+    if min_val < 0:
+        raise ValueError(
+            f"{label} has negative values — looks like scaled data."
+        )
+    max_val = float(np.asarray(x_sub.max() if sparse.issparse(x_sub) else x_sub.max()))
+    if max_val > 30:
+        warnings.warn(
+            f"{label} max = {max_val:.1f}; may not be log1p-normalized.",
+            UserWarning,
+            stacklevel=3,
+        )
 
 
 def _add_scaled_layer(adata, groupby: str, layer_name: str = _LAYER_NAME):
@@ -89,8 +123,9 @@ def dotplot(
     groupby: str,
     *,
     groups: Optional[Sequence[str]] = None,
+    n_top: Optional[int] = 10,
     transpose: bool = False,
-    use_raw: bool = False,
+    use_raw: bool = True,
     cmap: str = "OrRd",
     figsize: Optional[Tuple[float, float]] = None,
     save: Optional[str] = None,
@@ -106,7 +141,7 @@ def dotplot(
     Parameters
     ----------
     adata
-        AnnData with log1p-normalized ``adata.X``.  Raw is not supported.
+        AnnData with log1p-normalized expression.
     var_names
         Gene list or ``{bracket_name: [gene, ...]}`` / ``{bracket_name: [(gene, score), ...]}``
         mapping.  Mappings render as bracket-grouped x-axis labels via scanpy.
@@ -114,10 +149,16 @@ def dotplot(
         Column in ``adata.obs`` to group cells by.
     groups
         Subset of groups to display.  ``None`` shows all.
+    n_top
+        For Mapping *var_names*: max genes per group (default 10).
+        Groups with no valid genes are silently dropped.
+        Ignored when *var_names* is a plain list.
     transpose
         If ``True``, genes on x-axis, groups on y-axis.  Default puts genes on y.
     use_raw
-        Must be ``False``.  Passing ``True`` raises ``ValueError``.
+        If ``True`` (default), read from ``adata.raw.X``.
+        If ``False``, read from ``adata.X``.
+        Both sources are checked for log1p normalization.
     cmap
         Matplotlib colormap for color scale (default ``OrRd``).
     figsize
@@ -128,35 +169,66 @@ def dotplot(
         Whether to call ``plt.show()``.
     **kwargs
         Forwarded to ``scanpy.pl.dotplot``.
-
-    Returns
-    -------
-    matplotlib.figure.Figure
     """
+    # ── select expression source ─────────────────────────────────────
     if use_raw:
-        raise ValueError(
-            "sceleto.dotplot: use_raw=True is not supported. "
-            "Pass log1p-normalized values via adata.X directly."
-        )
+        if adata.raw is None:
+            raise ValueError("use_raw=True but adata.raw is None.")
+        src_var_names = list(adata.raw.var_names)
+    else:
+        src_var_names = list(adata.var_names)
 
-    available = set(adata.var_names)
-    var_group_dict, flat_genes = _resolve_var_names(var_names, available)
+    available = set(src_var_names)
+    var_group_dict, flat_genes = _resolve_var_names(var_names, available, n_top=n_top)
     if not flat_genes:
-        raise ValueError(
-            "sceleto.dotplot: none of the provided genes are in adata.var_names."
-        )
+        raise ValueError("sceleto.dotplot: none of the provided genes are in var_names.")
 
-    # subset copy: only required genes, optionally restrict cells to `groups`
-    ad = adata[:, flat_genes].copy()
+    # ── filter cells ─────────────────────────────────────────────────
     if groups is not None:
-        mask = ad.obs[groupby].astype(str).isin([str(g) for g in groups])
-        ad = ad[mask].copy()
+        cell_mask = adata.obs[groupby].astype(str).isin([str(g) for g in groups]).values
+        adata_c = adata[cell_mask]
+    else:
+        adata_c = adata
 
-    # per-gene max-normalized layer
+    # ── build working AnnData ─────────────────────────────────────────
+    if use_raw:
+        gene_idx = np.array([src_var_names.index(g) for g in flat_genes])
+        X_work = adata_c.raw.X[:, gene_idx]
+        _check_log1p_normalized(X_work, "adata.raw.X")
+        X_copy = X_work.copy() if sparse.issparse(X_work) else np.asarray(X_work)
+        ad = anndata.AnnData(
+            X=X_copy,
+            obs=adata_c.obs[[groupby]].copy(),
+            var=pd.DataFrame(index=pd.Index(flat_genes)),
+        )
+    else:
+        ad = adata_c[:, flat_genes].copy()
+        _check_log1p_normalized(ad.X, "adata.X")
+
+    # ── per-gene max-normalized layer ─────────────────────────────────
     _add_scaled_layer(ad, groupby, layer_name=_LAYER_NAME)
 
     # dict → bracket-grouped x-axis via scanpy; else flat list
     sc_var = var_group_dict if var_group_dict is not None else flat_genes
+
+    # Block kwargs that conflict with sceleto's normalization logic
+    _BLOCKED = {
+        "layer", "standard_scale",         # normalization
+        "vmin", "vmax", "vcenter", "norm",  # color range
+        "var_group_positions", "var_group_labels",  # bracket structure
+        "dot_color_df", "dot_size_df",      # bypass sceleto logic entirely
+    }
+    bad = _BLOCKED & set(kwargs)
+    if bad:
+        raise ValueError(f"sceleto.dotplot: {sorted(bad)} cannot be set.")
+
+    # Split kwargs: .style() params must not go to the constructor
+    _STYLE_KEYS = {
+        "color_on", "dot_max", "dot_min", "smallest_dot", "largest_dot",
+        "size_exponent", "grid", "x_padding", "y_padding",
+    }
+    style_kwargs = {k: v for k, v in kwargs.items() if k in _STYLE_KEYS}
+    dp_kwargs = {k: v for k, v in kwargs.items() if k not in _STYLE_KEYS}
 
     # Use DotPlot class API directly: module-level sc.pl.dotplot does not
     # expose dot_edge_* in scanpy 1.12; those live on DotPlot.style().
@@ -169,18 +241,16 @@ def dotplot(
         vmin=0,
         vmax=1,
         figsize=figsize,
-        **kwargs,
+        **dp_kwargs,
     )
-    dp.style(cmap=cmap, dot_edge_color="none", dot_edge_lw=0)
+    dp.style(cmap=cmap, dot_edge_color="none", dot_edge_lw=0, **style_kwargs)
     dp.legend(colorbar_title="Max-scaled\nmean")
     if not transpose:
         dp.swap_axes()
 
     dp.make_figure()
-    fig = dp.fig
 
     if save:
-        fig.savefig(save, bbox_inches="tight", format="pdf", dpi=300)
+        dp.fig.savefig(save, bbox_inches="tight", format="pdf", dpi=300)
     if show:
         plt.show()
-    return fig

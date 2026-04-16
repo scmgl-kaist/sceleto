@@ -192,9 +192,8 @@ def _find_markers_impl(
                     if _passes_threshold(top, gene_idx, stats, min_mean, min_frac):
                         markers[top].append((gene, first_gap))
 
-    if mode == "negative":
-        for g in markers:
-            markers[g].sort(key=lambda x: -x[1])
+    for g in markers:
+        markers[g].sort(key=lambda x: -x[1])
 
     return dict(markers)
 
