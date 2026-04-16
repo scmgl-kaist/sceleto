@@ -227,6 +227,10 @@ def dotplot(
 
     # Use DotPlot class API directly: module-level sc.pl.dotplot does not
     # expose dot_edge_* in scanpy 1.12; those live on DotPlot.style().
+    # ── compact figsize ───────────────────────────────────────────────
+    # Passing figsize directly sets min_figure_height = figsize[1], causing
+    # legend to scale with plot size. Instead let scanpy auto-calculate by
+    # overriding per-cell size on the instance (read in make_figure()).
     dp = sc.pl.DotPlot(
         ad,
         sc_var,
@@ -238,6 +242,11 @@ def dotplot(
         figsize=figsize,
         **dp_kwargs,
     )
+    if figsize is None:
+        dp.DEFAULT_CATEGORY_HEIGHT = 0.27
+        dp.DEFAULT_CATEGORY_WIDTH = 0.29
+    style_kwargs.setdefault("x_padding", 0.6)
+    style_kwargs.setdefault("y_padding", 0.6)
     dp.style(cmap=cmap, dot_edge_color="none", dot_edge_lw=0, **style_kwargs)
     dp.legend(colorbar_title="Max-scaled\nmean")
     if swap_axes:
