@@ -5,9 +5,9 @@ Usage
 >>> import sceleto as scl
 >>> scl.dotplot(adata, ['CD3D', 'CD8A'], 'leiden')
 
-With a marker dict (bracket-grouped x-axis labels):
+For marker outputs, prefer the convenience method:
 >>> mk = scl.markers.simple(adata, 'leiden')
->>> scl.dotplot(adata, mk.markers, 'leiden')
+>>> mk.plot()
 """
 
 from __future__ import annotations
@@ -30,13 +30,12 @@ _LAYER_NAME = "_scl_scaled"
 # ── helpers ─────────────────────────────────────────────────────────
 
 
-def _resolve_var_names(var_names, available: set, n_top: Optional[int] = None):
+def _resolve_var_names(var_names, available: set):
     """Return ``(var_group_dict_or_None, flat_gene_list)``.
 
     - If *var_names* is a mapping, keep the mapping structure so scanpy
       renders bracket-grouped x-axis labels.  Tuple entries ``(gene, score)``
       are accepted.
-    - *n_top*: if set, take at most this many genes per group (in order).
     - Groups with no valid genes are silently dropped.
     - Genes absent from *available* are dropped.
     """
@@ -48,8 +47,6 @@ def _resolve_var_names(var_names, available: set, n_top: Optional[int] = None):
                 g = it[0] if isinstance(it, tuple) else str(it)
                 if g in available:
                     names.append(g)
-                    if n_top is not None and len(names) >= n_top:
-                        break
             if names:  # groups with no valid genes are silently dropped
                 clean[k] = names
         # deduplicate while preserving order (same gene can appear in multiple groups)
@@ -123,8 +120,7 @@ def dotplot(
     groupby: str,
     *,
     groups: Optional[Sequence[str]] = None,
-    n_top: Optional[int] = 10,
-    transpose: bool = False,
+    swap_axes: bool = False,
     use_raw: bool = True,
     cmap: str = "OrRd",
     figsize: Optional[Tuple[float, float]] = None,
@@ -138,23 +134,22 @@ def dotplot(
     Color encodes ``group_mean(gene) / max_group(group_mean(gene))`` per gene,
     so ``vmax=1`` always corresponds to the highest-expressing group.
 
+    Follows scanpy's default axis orientation: genes on x-axis, groups on y-axis.
+    Pass ``swap_axes=True`` to put genes on y-axis, groups on x-axis.
+
     Parameters
     ----------
     adata
         AnnData with log1p-normalized expression.
     var_names
         Gene list or ``{bracket_name: [gene, ...]}`` / ``{bracket_name: [(gene, score), ...]}``
-        mapping.  Mappings render as bracket-grouped x-axis labels via scanpy.
+        mapping.  Mappings render as bracket-grouped labels via scanpy.
     groupby
         Column in ``adata.obs`` to group cells by.
     groups
         Subset of groups to display.  ``None`` shows all.
-    n_top
-        For Mapping *var_names*: max genes per group (default 10).
-        Groups with no valid genes are silently dropped.
-        Ignored when *var_names* is a plain list.
-    transpose
-        If ``True``, genes on x-axis, groups on y-axis.  Default puts genes on y.
+    swap_axes
+        If ``True``, genes on y-axis, groups on x-axis (swaps scanpy default).
     use_raw
         If ``True`` (default), read from ``adata.raw.X``.
         If ``False``, read from ``adata.X``.
@@ -179,7 +174,7 @@ def dotplot(
         src_var_names = list(adata.var_names)
 
     available = set(src_var_names)
-    var_group_dict, flat_genes = _resolve_var_names(var_names, available, n_top=n_top)
+    var_group_dict, flat_genes = _resolve_var_names(var_names, available)
     if not flat_genes:
         raise ValueError("sceleto.dotplot: none of the provided genes are in var_names.")
 
@@ -245,7 +240,7 @@ def dotplot(
     )
     dp.style(cmap=cmap, dot_edge_color="none", dot_edge_lw=0, **style_kwargs)
     dp.legend(colorbar_title="Max-scaled\nmean")
-    if not transpose:
+    if swap_axes:
         dp.swap_axes()
 
     dp.make_figure()

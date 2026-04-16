@@ -75,7 +75,7 @@ class MarkerGraphRun:
         """
         from sceleto.dotplot import dotplot
         from sceleto.markers._base import _flatten_markers
-        return dotplot(self.ctx.adata, _flatten_markers(self.markers, n_top), self.ctx.groupby, n_top=None, **kwargs)
+        return dotplot(self.ctx.adata, _flatten_markers(self.markers, n_top), self.ctx.groupby, **kwargs)
 
     def batch_detail(
         self,

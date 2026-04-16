@@ -71,5 +71,5 @@ class MarkersBase:
         Remaining kwargs are forwarded to ``sceleto.dotplot``.
         """
         from sceleto.dotplot import dotplot
-        return dotplot(self.adata, _flatten_markers(self.markers, n_top), self.groupby, n_top=None, **kwargs)
+        return dotplot(self.adata, _flatten_markers(self.markers, n_top), self.groupby, **kwargs)
 
