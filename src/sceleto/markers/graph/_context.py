@@ -39,6 +39,9 @@ class MarkerContext:
     undirected_edges: Optional[List[Tuple[str, str]]] = None
     pos_df: Optional[pd.DataFrame] = None
 
+    # Source AnnData (stored for downstream convenience, e.g. .plot())
+    adata: Optional[object] = None
+
     def get_group_idx(self, group: str) -> int:
         """Return row index for a group label."""
         return self.group_to_idx[str(group)]
@@ -126,7 +129,7 @@ def build_context(
         k=k,
     )
 
-    return replace(ctx, undirected_edges=undirected_edges, pos_df=pos_df)
+    return replace(ctx, undirected_edges=undirected_edges, pos_df=pos_df, adata=adata)
 
 
 def _build_expression_context(

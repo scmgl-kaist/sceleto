@@ -280,6 +280,12 @@ class MarkersSimple(MarkersBase):
             min_frac=min_frac,
             min_count=min_count,
         )
+
+        # Reorder dict keys to match adata.obs[groupby].cat.categories order
+        obs_col = adata.obs[groupby]
+        if hasattr(obs_col, "cat"):
+            cat_order = [str(g) for g in obs_col.cat.categories]
+            self._mks = {g: self._mks[g] for g in cat_order if g in self._mks}
         if run_scanpy:
             import scanpy as sc
             sc.tl.rank_genes_groups(adata, groupby)

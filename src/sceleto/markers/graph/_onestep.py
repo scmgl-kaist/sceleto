@@ -66,6 +66,17 @@ class MarkerGraphRun:
         """Per-group marker gene lists, ranked by specificity score."""
         return self._marker_log
 
+    def plot(self, n_top: int = 10, **kwargs):
+        """Dotplot of ``self.markers`` against ``self.ctx.groupby``.
+
+        Genes are flattened from the markers dict (no bracket grouping).
+        ``n_top`` controls how many genes per group are included.
+        Remaining kwargs are forwarded to ``sceleto.dotplot``.
+        """
+        from sceleto.dotplot import dotplot
+        from sceleto.markers._base import _flatten_markers
+        return dotplot(self.ctx.adata, _flatten_markers(self.markers, n_top), self.ctx.groupby, n_top=None, **kwargs)
+
     def batch_detail(
         self,
         adata,
