@@ -65,18 +65,28 @@ class HierarchyRun:
             Number of top markers per cluster. Defaults to the value
             used in the hierarchy run.
         """
-        from ._viewer import build_interactive_html
-
         if n_top is None:
             n_top = self.params["n_top_markers"]
 
-        build_interactive_html(
-            adata=adata,
-            icls_full_dict=self.icls_full_dict,
-            full_gene_lists=self.full_gene_lists,
-            n_top=n_top,
-            save=save,
-        )
+        if self.batch_expression is not None:
+            from ._viewer import build_interactive_html_batch
+            build_interactive_html_batch(
+                adata=adata,
+                icls_full_dict=self.icls_full_dict,
+                full_gene_lists=self.full_gene_lists,
+                batch_expression=self.batch_expression,
+                n_top=n_top,
+                save=save,
+            )
+        else:
+            from ._viewer import build_interactive_html
+            build_interactive_html(
+                adata=adata,
+                icls_full_dict=self.icls_full_dict,
+                full_gene_lists=self.full_gene_lists,
+                n_top=n_top,
+                save=save,
+            )
 
     def compare_markers(
         self,
