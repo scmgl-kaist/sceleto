@@ -15,6 +15,11 @@ from ._corr_network import (
     build_gene_network,
     plot_network,
     plot_clustermap,
+    corr_pangea,
+)
+from ._corr_db import (
+    list_cell_types,
+    load_corr_db,
 )
 
 __all__ = [
@@ -34,4 +39,8 @@ __all__ = [
     "build_gene_network",
     "plot_network",
     "plot_clustermap",
+    "corr_pangea",
+    # corr DB
+    "list_cell_types",
+    "load_corr_db",
 ]

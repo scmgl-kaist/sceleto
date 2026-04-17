@@ -9,6 +9,7 @@ Pipeline
 5. build_gene_network  — Euclidean kNN → networkx Graph
 6. plot_network        — spring layout, optional condition coloring
 7. plot_clustermap     — seaborn hierarchical heatmap
+8. corr_pangea         — PANGEA pre-computed DB → one-shot network
 """
 
 from __future__ import annotations
@@ -154,21 +155,22 @@ def select_top_genes(
     corr_df: pd.DataFrame,
     top_n: int = 10,
     conditions: Optional[list[str]] = None,
-    exclude_goi: bool = True,
+    exclude_gene: Optional[str] = None,
 ) -> pd.DataFrame:
     """Select the top *top_n* positively correlated genes per condition.
 
     Parameters
     ----------
     corr_df
-        Wide table from :func:`build_corr_matrix`.
+        Wide table from :func:`build_corr_matrix` or :func:`load_corr_db`.
     top_n
         Number of top genes to keep per condition.
     conditions
         Subset of condition labels (column prefix, i.e. without ``_corr``).
         If None, all ``*_corr`` columns are used.
-    exclude_goi
-        Drop rank-1 gene (GOI itself, corr = 1.0).
+    exclude_gene
+        Gene name to exclude (typically the GOI itself).
+        Removes rows where ``gene == exclude_gene`` or ``corr >= 1.0``.
 
     Returns
     -------
@@ -185,8 +187,10 @@ def select_top_genes(
         pval_col = f"{lbl}_pval"
         keep_cols = ["gene", col] + ([pval_col] if pval_col in corr_df.columns else [])
         sub = corr_df[keep_cols].dropna(subset=[col]).sort_values(col, ascending=False)
-        if exclude_goi:
-            sub = sub.iloc[1:]
+        if exclude_gene:
+            sub = sub[
+                (sub["gene"] != exclude_gene) & (sub[col] < 1.0)
+            ]
         sub = sub.head(top_n)
         for _, row in sub.iterrows():
             records.append({
@@ -419,3 +423,47 @@ def plot_clustermap(
     g.ax_heatmap.set_xlabel("Condition")
     g.ax_heatmap.set_ylabel("Gene")
     return g
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# 8. corr_pangea
+# ─────────────────────────────────────────────────────────────────────────────
+
+def corr_pangea(
+    gene: str,
+    data_dir: str,
+    cell_types: Optional[list[str]] = None,
+    top_n: int = 10,
+    k: int = 5,
+) -> tuple[pd.DataFrame, pd.DataFrame, nx.Graph]:
+    """One-shot gene network from PANGEA pre-computed correlation DB.
+
+    Parameters
+    ----------
+    gene
+        Gene of interest (e.g. ``"CD55"``).
+    data_dir
+        Directory containing ``pangea_corr_{CT}_v03.csv.gz`` files.
+    cell_types
+        Subset of cell types.  ``None`` = all 6.
+    top_n
+        Number of top correlated genes per cell type.
+    k
+        Number of nearest neighbours for the kNN gene network.
+
+    Returns
+    -------
+    corr_df : pd.DataFrame
+        Wide table (gene + per-cell-type corr/pval).
+    feature_matrix : pd.DataFrame
+        Gene × conditions correlation matrix.
+    G : networkx.Graph
+        kNN gene network.
+    """
+    from ._corr_db import load_corr_db
+
+    corr_df = load_corr_db(gene, data_dir=data_dir, cell_types=cell_types)
+    top_genes = select_top_genes(corr_df, top_n=top_n, exclude_gene=gene)
+    feat = build_feature_matrix(top_genes, corr_df)
+    G = build_gene_network(feat, k=k)
+    return corr_df, feat, G
