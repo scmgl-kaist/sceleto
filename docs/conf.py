@@ -9,7 +9,10 @@ extensions = [
     "sphinx.ext.viewcode",
     "sphinx.ext.intersphinx",
     "sphinx.ext.autosummary",
+    "nbsphinx",
 ]
+
+nbsphinx_execute = "never"
 
 # Napoleon settings (Google-style docstrings)
 napoleon_google_docstring = True
