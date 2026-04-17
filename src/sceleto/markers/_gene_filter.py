@@ -74,6 +74,11 @@ class GeneFilter:
         Deprecated.  Use ``name_exclude=["."]`` instead.
     """
 
+    @staticmethod
+    def available_categories() -> list[str]:
+        """Return the list of available gene category names."""
+        return available_categories()
+
     def __init__(
         self,
         exclude: Optional[Sequence[str]] = None,
