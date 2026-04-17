@@ -8,6 +8,7 @@ extensions = [
     "sphinx.ext.napoleon",
     "sphinx.ext.viewcode",
     "sphinx.ext.intersphinx",
+    "sphinx.ext.autosummary",
 ]
 
 # Napoleon settings (Google-style docstrings)
@@ -30,7 +31,7 @@ intersphinx_mapping = {
 }
 
 # Theme
-html_theme = "sphinx_rtd_theme"
+html_theme = "furo"
 
 # Exclude patterns
 exclude_patterns = ["_build"]
