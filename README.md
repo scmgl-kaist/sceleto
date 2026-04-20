@@ -1,5 +1,7 @@
 # sceleto
 
+[![Documentation](https://img.shields.io/badge/docs-readthedocs-blue)](https://sceleto.readthedocs.io/en/latest/)
+
 Single-cell RNA-seq analysis toolkit — marker discovery, gene network, and cell type annotation.
 
 ## Install
