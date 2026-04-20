@@ -438,16 +438,23 @@ def hierarchy(
         path_arr = adata.obs["path"].to_numpy(dtype=object, copy=True)
         path_arr[small_mask] = None
 
-        small_indices = np.where(small_mask)[0]
-        for idx in small_indices:
-            row = conn[idx]
-            nbr_indices = row.indices
-            nbr_paths = path_arr[nbr_indices]
-            # keep only neighbors with valid (non-small) paths
-            valid = nbr_paths[nbr_paths != None]  # noqa: E711
-            if len(valid) > 0:
-                values, counts = np.unique(valid, return_counts=True)
-                path_arr[idx] = values[counts.argmax()]
+        # Iterative reassignment: repeat until convergence.
+        # Each pass may unlock neighbors that were None in the previous pass.
+        remaining = list(np.where(small_mask)[0])
+        while remaining:
+            next_remaining = []
+            for idx in remaining:
+                row = conn[idx]
+                nbr_paths = path_arr[row.indices]
+                valid = nbr_paths[nbr_paths != None]  # noqa: E711
+                if len(valid) > 0:
+                    values, counts = np.unique(valid, return_counts=True)
+                    path_arr[idx] = values[counts.argmax()]
+                else:
+                    next_remaining.append(idx)
+            if len(next_remaining) == len(remaining):  # no progress → stop
+                break
+            remaining = next_remaining
 
         adata.obs["path"] = pd.Categorical(
             path_arr, categories=path_categories, ordered=True,
