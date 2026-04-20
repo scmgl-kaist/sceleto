@@ -15,7 +15,6 @@ pip install git+https://github.com/scmgl-kaist/sceleto.git
 | `sceleto.markers` | Graph-based marker gene discovery; cross-resolution hierarchy |
 | `sceleto.network` | Gene co-expression network construction and visualization |
 | `sceleto.annotation` | Cell type annotation with LR transfer and pangeapy integration |
-| `sceleto.dotplot` | Publication-ready dotplots |
 
 ## Requirements
 
