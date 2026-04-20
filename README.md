@@ -4,6 +4,8 @@
 
 Single-cell RNA-seq analysis toolkit — marker discovery, gene network, and cell type annotation.
 
+Documentation: https://sceleto.readthedocs.io/en/latest/
+
 ## Install
 
 ```bash
