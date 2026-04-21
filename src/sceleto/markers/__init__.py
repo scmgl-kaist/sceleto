@@ -14,6 +14,9 @@ def simple(adata, groupby: str, **kwargs) -> MarkersSimple:
     return MarkersSimple(adata, groupby, **kwargs)
 
 
+# backward compat
+classic = simple
+
 
 def marker(
     adata,
@@ -112,7 +115,7 @@ def sweep_fc(adata, groupby: str, **kwargs):
 
 
 def __dir__():
-    return ["simple", "marker", "hierarchy", "sweep_fc", "GeneFilter"]
+    return ["simple", "classic", "marker", "hierarchy", "sweep_fc", "GeneFilter"]
 
 
-__all__ = ["simple", "marker", "hierarchy", "sweep_fc", "GeneFilter"]
+__all__ = ["simple", "classic", "marker", "hierarchy", "sweep_fc", "GeneFilter"]

@@ -38,6 +38,9 @@ def _resolve_var_names(var_names, available: set):
       are accepted.
     - Groups with no valid genes are silently dropped.
     - Genes absent from *available* are dropped.
+    - For mappings, the flat list is built round-robin (one gene per cluster
+      per round) so every cluster with unique genes gets represented even when
+      markers are shared across clusters.
     """
     if isinstance(var_names, Mapping):
         clean: dict = {}
@@ -49,13 +52,20 @@ def _resolve_var_names(var_names, available: set):
                     names.append(g)
             if names:  # groups with no valid genes are silently dropped
                 clean[k] = names
-        # deduplicate while preserving order (same gene can appear in multiple groups)
+        # round-robin dedup: each cluster contributes its top-1 gene before
+        # any cluster contributes its top-2, ensuring every cluster is visible
         seen: set = set()
-        flat = []
-        for g in (g for gs in clean.values() for g in gs):
-            if g not in seen:
-                flat.append(g)
-                seen.add(g)
+        flat: list = []
+        groups_genes = list(clean.values())
+        if groups_genes:
+            max_len = max(len(gs) for gs in groups_genes)
+            for round_i in range(max_len):
+                for gs in groups_genes:
+                    if round_i < len(gs):
+                        g = gs[round_i]
+                        if g not in seen:
+                            flat.append(g)
+                            seen.add(g)
         return clean, flat
     flat = [g for g in var_names if g in available]
     return None, flat
