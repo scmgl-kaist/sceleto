@@ -11,7 +11,7 @@ Documentation: https://sceleto.readthedocs.io/en/latest/
 ```bash
 pip install git+https://github.com/scmgl-kaist/sceleto.git
 ```
-If the update isn't reflected even after reinstalling, try:
+`sceleto` is under active development and receives frequent updates. If a reinstallation doesn't seem to reflect the latest changes, please try:
 ```bash
 pip install --force-reinstall git+https://github.com/scmgl-kaist/sceleto.git
 ```
