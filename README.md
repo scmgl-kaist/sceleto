@@ -11,6 +11,10 @@ Documentation: https://sceleto.readthedocs.io/en/latest/
 ```bash
 pip install git+https://github.com/scmgl-kaist/sceleto.git
 ```
+If the update isn't reflected even after reinstalling, try:
+```bash
+pip install --force-reinstall git+https://github.com/scmgl-kaist/sceleto.git
+```
 
 ## Modules
 
