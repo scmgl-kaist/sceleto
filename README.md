@@ -13,7 +13,7 @@ pip install git+https://github.com/scmgl-kaist/sceleto.git
 ```
 `sceleto` is under active development and receives frequent updates. If a reinstallation doesn't seem to reflect the latest changes, please try:
 ```bash
-pip install --force-reinstall git+https://github.com/scmgl-kaist/sceleto.git
+pip install --upgrade git+https://github.com/scmgl-kaist/sceleto.git
 ```
 
 ## Modules
