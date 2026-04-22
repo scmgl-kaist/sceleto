@@ -51,11 +51,12 @@ class MarkersBase:
     def plot(self, n_top: int = 10, **kwargs):
         """Dotplot of ``self.markers`` against ``self.groupby``.
 
-        Genes are shown with per-cluster bracket labels. ``n_top`` controls
-        how many genes per group are included. Remaining kwargs are forwarded
-        to ``sceleto.dotplot``.
+        ``n_top`` controls how many genes per group are included.
+        Remaining kwargs are forwarded to ``sceleto.dotplot``.
         """
         from sceleto.dotplot import dotplot
-        var_names = {k: v[:n_top] for k, v in self.markers.items() if v}
-        return dotplot(self.adata, var_names, self.groupby, **kwargs)
+        genes = []
+        for v in self.markers.values():
+            genes.extend(v[:n_top])
+        return dotplot(self.adata, genes, self.groupby, **kwargs)
 
