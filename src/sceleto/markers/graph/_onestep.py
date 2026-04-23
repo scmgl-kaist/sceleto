@@ -5,11 +5,11 @@ from typing import Any, Callable, Dict, List, Optional, Tuple, Union
 
 import pandas as pd
 
-
+from sceleto.markers._base import MarkersBase
 
 
 @dataclass
-class MarkerGraphRun:
+class MarkerGraphRun(MarkersBase):
 
     """Container for one-step marker-graph pipeline results.
 
@@ -59,22 +59,22 @@ class MarkerGraphRun:
     def plot_highlight_edges(self, edges, **kwargs):
         return self.viz.plot_highlight_edges(edges, **kwargs)
 
+    def __post_init__(self):
+        # Skip MarkersBase.__init__; adata/groupby are proxied from ctx
+        pass
+
+    @property
+    def adata(self):
+        return self.ctx.adata
+
+    @property
+    def groupby(self):
+        return self.ctx.groupby
+
     @property
     def markers(self) -> Dict[str, List[str]]:
         """Per-group marker gene lists, ranked by specificity score."""
         return self._marker_log
-
-    def plot(self, n_top: int = 10, **kwargs):
-        """Dotplot of ``self.markers`` against ``self.ctx.groupby``.
-
-        ``n_top`` controls how many genes per group are included.
-        Remaining kwargs are forwarded to ``sceleto.dotplot``.
-        """
-        from sceleto.dotplot import dotplot
-        genes = []
-        for v in self.markers.values():
-            genes.extend(v[:n_top])
-        return dotplot(self.ctx.adata, genes, self.ctx.groupby, **kwargs)
 
     def batch_mean_detail(
         self,

@@ -292,8 +292,13 @@ class MarkersSimple(MarkersBase):
             adata.uns["rnk"] = pd.DataFrame(adata.uns["rank_genes_groups"]["names"])
 
     @property
-    def markers(self) -> dict:
-        """Per-group marker gene lists."""
+    def markers(self) -> Dict[str, List[str]]:
+        """Per-group marker gene lists (gene names only, ranked by score)."""
+        return {k: [g for g, _ in v] for k, v in self._mks.items()}
+
+    @property
+    def markers_scored(self) -> Dict[str, List[Tuple[str, float]]]:
+        """Per-group marker gene lists with scores."""
         return self._mks
 
     @property
