@@ -67,13 +67,14 @@ class MarkerGraphRun:
     def plot(self, n_top: int = 10, **kwargs):
         """Dotplot of ``self.markers`` against ``self.ctx.groupby``.
 
-        Genes are shown with per-cluster bracket labels. ``n_top`` controls
-        how many genes per group are included. Remaining kwargs are forwarded
-        to ``sceleto.dotplot``.
+        ``n_top`` controls how many genes per group are included.
+        Remaining kwargs are forwarded to ``sceleto.dotplot``.
         """
         from sceleto.dotplot import dotplot
-        var_names = {k: v[:n_top] for k, v in self.markers.items() if v}
-        return dotplot(self.ctx.adata, var_names, self.ctx.groupby, **kwargs)
+        genes = []
+        for v in self.markers.values():
+            genes.extend(v[:n_top])
+        return dotplot(self.ctx.adata, genes, self.ctx.groupby, **kwargs)
 
     def batch_mean_detail(
         self,
