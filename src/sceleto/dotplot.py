@@ -123,6 +123,7 @@ def dotplot(
     groups: Optional[Sequence[str]] = None,
     swap_axes: bool = False,
     use_raw: bool = True,
+    dendrogram: bool = False,
     cmap: str = "OrRd",
     figsize: Optional[Tuple[float, float]] = None,
     save: Optional[str] = None,
@@ -245,6 +246,12 @@ def dotplot(
         figsize=figsize,
         **dp_kwargs,
     )
+    if dendrogram:
+        dendro_key = f"dendrogram_{groupby}"
+        if dendro_key not in adata.uns:
+            sc.tl.dendrogram(adata, groupby)
+        ad.uns[dendro_key] = adata.uns[dendro_key]
+        dp.add_dendrogram()
     if figsize is None:
         dp.DEFAULT_CATEGORY_HEIGHT = 0.27
         dp.DEFAULT_CATEGORY_WIDTH = 0.29
