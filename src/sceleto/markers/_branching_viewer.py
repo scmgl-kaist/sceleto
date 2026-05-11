@@ -178,14 +178,15 @@ _HTML_TEMPLATE = r"""<!DOCTYPE html>
     gap: 4px;
     padding: 4px;
   }
-  #panel-icls   { grid-column: 1; grid-row: 1 / span 2; background: white; border: 1px solid #ddd; padding: 8px;  min-width: 0; min-height: 0;
+  #panel-icls   { grid-column: 1; grid-row: 1 / span 2; background: white; border: 1px solid #ddd; padding: 8px;  overflow: hidden;
                   display: flex; align-items: center; justify-content: center; }
-  #panel-marker { grid-column: 2; grid-row: 1;          background: white; border: 1px solid #ddd; padding: 12px; overflow: auto; min-width: 0; min-height: 0; }
-  #panel-cross  { grid-column: 2; grid-row: 2;          background: white; border: 1px solid #ddd; padding: 4px;  min-width: 0; min-height: 0; }
+  #panel-marker { grid-column: 2; grid-row: 1;          background: white; border: 1px solid #ddd; padding: 12px; overflow: auto; }
+  #panel-cross  { grid-column: 2; grid-row: 2;          background: white; border: 1px solid #ddd; padding: 4px;  overflow: hidden; }
 
-  #icls-umap { width: 100%; height: 100%; }
-  #cross-umaps { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 2px; height: 100%; }
-  .cross-cell { min-width: 0; min-height: 0; }
+  /* Fixed plot sizes — do not resize on window changes. Small windows clip. */
+  #icls-umap   { width: 520px; height: 520px; }
+  #cross-umaps { display: flex; gap: 2px; }
+  .cross-cell  { width: 320px; height: 320px; flex: 0 0 320px; }
 
   h2 { font-size: 13px; color: #555; margin-bottom: 6px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.05em; }
   .placeholder { color: #aaa; font-size: 12px; text-align: center; margin-top: 30px; }
@@ -206,7 +207,7 @@ _HTML_TEMPLATE = r"""<!DOCTYPE html>
   <div id="panel-icls"><div id="icls-umap"></div></div>
   <div id="panel-marker">
     <h2>Marker Comparison</h2>
-    <div class="placeholder" id="marker-placeholder">Click an icls cluster on the UMAP.</div>
+    <div class="placeholder" id="marker-placeholder">Click a path on the UMAP.</div>
     <div id="marker-content" style="display:none;"></div>
   </div>
   <div id="panel-cross">
@@ -255,7 +256,7 @@ function buildIclsTraces(highlight) {
     marker: { size: 22, color: "rgba(0,0,0,0)", line: { width: 0 } },
     customdata: cent.icls,
     hoverinfo: "text",
-    hovertext: cent.icls.map(id => "icls " + id),
+    hovertext: cent.icls.map(id => "path " + id),
     showlegend: false,
   });
   return traces;
@@ -282,35 +283,20 @@ const ICLS_LAYOUT = (function() {
     });
   }
   return {
-    title: { text: "icls UMAP — click a number", font: { size: 13 } },
+    title: { text: "path UMAP — click a number", font: { size: 13 } },
     xaxis: { title: "UMAP1", zeroline: false, showticklabels: false, showgrid: false },
-    yaxis: { title: "UMAP2", zeroline: false, showticklabels: false, showgrid: false,
-             scaleanchor: "x", scaleratio: 1 },
+    yaxis: { title: "UMAP2", zeroline: false, showticklabels: false, showgrid: false },
     showlegend: false,
-    margin: { l: 30, r: 10, t: 30, b: 30 },
+    margin: { l: 30, r: 10, t: 30, b: 30, autoexpand: false },
     hovermode: "closest",
     annotations: annotations,
     plot_bgcolor: "white", paper_bgcolor: "white",
   };
 })();
 
-// Keep icls UMAP square — fit to the shorter side of its container
-function fitIclsSquare() {
-  const panel = document.getElementById("panel-icls");
-  const div = document.getElementById("icls-umap");
-  if (!panel || !div) return;
-  const padding = 16;  // matches panel padding
-  const dim = Math.max(50, Math.min(panel.clientWidth, panel.clientHeight) - padding);
-  div.style.width  = dim + "px";
-  div.style.height = dim + "px";
-  if (div.layout) Plotly.Plots.resize(div);
-}
-window.addEventListener("resize", fitIclsSquare);
-fitIclsSquare();
-
+// Fixed-size plot — no resize on window changes; CSS sets 520x520.
 let SELECTED_ICLS = null;
-Plotly.newPlot("icls-umap", buildIclsTraces(null), ICLS_LAYOUT, { responsive: true, displayModeBar: false });
-fitIclsSquare();
+Plotly.newPlot("icls-umap", buildIclsTraces(null), ICLS_LAYOUT, { responsive: false, displayModeBar: false });
 document.getElementById("icls-umap").on("plotly_click", function(data) {
   if (!data || !data.points || !data.points.length) return;
   const pt = data.points[0];
@@ -341,7 +327,7 @@ function renderMarkerComparison(icls) {
   const cellW = 28, labelColW = 120;
   const tableW = labelColW + sortedGenes.length * cellW;
 
-  let html = '<div class="info"><b>icls ' + icls + '</b> &nbsp; (' + d.n_cells + ' cells)<br>'
+  let html = '<div class="info"><b>path ' + icls + '</b> &nbsp; (' + d.n_cells + ' cells)<br>'
            + d.levels.map(l => '<code>' + l + '</code>').join(' &rarr; ') + '</div>';
   html += '<table class="heatmap" style="width:' + tableW + 'px;"><thead><tr><th style="width:' + labelColW + 'px;"></th>';
   for (const g of sortedGenes) {
@@ -431,8 +417,8 @@ function plotCrossUmap(divId, levelIdx, highlightSet, markerAnnotations) {
 
   // Directional offsets for marker annotation text. xanchor/yanchor pin the
   // box edge to the offset point so the box is pushed away from the cluster.
-  const R = 70;   // cardinal distance
-  const D = 55;   // diagonal distance (~ R/√2)
+  const R = 45;   // cardinal distance
+  const D = 35;   // diagonal distance (~ R/√2)
   // Index order: 0=N, 1=E, 2=S, 3=W, 4=NE, 5=SE, 6=SW, 7=NW
   const POSITIONS = [
     { ax:  0, ay: -R, xanchor: "center", yanchor: "bottom" },  // N
@@ -569,15 +555,17 @@ function plotCrossUmap(divId, levelIdx, highlightSet, markerAnnotations) {
   const layout = {
     title: { text: lvl, font: { size: 11, color: "#666" } },
     xaxis: { showticklabels: false, showgrid: false, zeroline: false, ticks: "" },
-    yaxis: { showticklabels: false, showgrid: false, zeroline: false, ticks: "",
-             scaleanchor: "x", scaleratio: 1 },
+    yaxis: { showticklabels: false, showgrid: false, zeroline: false, ticks: "" },
     showlegend: false,
-    margin: { l: 8, r: 8, t: 22, b: 8 },
+    // Small margins → larger data area. Annotation boxes that fall outside
+    // the SVG bounds get clipped (acceptable trade-off for max UMAP size).
+    // autoexpand:false locks the data area size on selection changes.
+    margin: { l: 8, r: 8, t: 22, b: 8, autoexpand: false },
     hovermode: false,
     annotations: annotations,
     plot_bgcolor: "white", paper_bgcolor: "white",
   };
-  Plotly.newPlot(divId, traces, layout, { responsive: true, displayModeBar: false, staticPlot: false });
+  Plotly.newPlot(divId, traces, layout, { responsive: false, displayModeBar: false, staticPlot: false });
 }
 
 function plotAllCross(highlightSets, annotationsByLevel) {
