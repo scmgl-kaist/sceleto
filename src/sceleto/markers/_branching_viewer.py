@@ -172,15 +172,16 @@ _HTML_TEMPLATE = r"""<!DOCTYPE html>
   body { font-family: 'Segoe UI', Tahoma, sans-serif; background: #f5f5f5; color: #222; }
   #app {
     display: grid;
-    grid-template-columns: 1fr 1fr;
+    grid-template-columns: 2fr 5fr;
     grid-template-rows: 1fr 1fr;
     height: 100vh;
     gap: 4px;
     padding: 4px;
   }
-  #panel-icls   { grid-column: 1; grid-row: 1 / span 2; background: white; border: 1px solid #ddd; padding: 8px; min-width: 0; min-height: 0; }
+  #panel-icls   { grid-column: 1; grid-row: 1 / span 2; background: white; border: 1px solid #ddd; padding: 8px;  min-width: 0; min-height: 0;
+                  display: flex; align-items: center; justify-content: center; }
   #panel-marker { grid-column: 2; grid-row: 1;          background: white; border: 1px solid #ddd; padding: 12px; overflow: auto; min-width: 0; min-height: 0; }
-  #panel-cross  { grid-column: 2; grid-row: 2;          background: white; border: 1px solid #ddd; padding: 4px; min-width: 0; min-height: 0; }
+  #panel-cross  { grid-column: 2; grid-row: 2;          background: white; border: 1px solid #ddd; padding: 4px;  min-width: 0; min-height: 0; }
 
   #icls-umap { width: 100%; height: 100%; }
   #cross-umaps { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 2px; height: 100%; }
@@ -223,28 +224,29 @@ const LEVELS = DATA.levels;
 const N_TOP = DATA.n_top;
 
 // ── Top: icls UMAP ────────────────────────────────────────────────
-(function buildIclsUmap() {
+const ICLS_GROUPS = {};
+const ICLS_SORTED = (function() {
   const u = DATA.umap;
-  const iclsSet = [...new Set(u.icls)];
-  const groups = {};
   for (let i = 0; i < u.icls.length; i++) {
     const id = u.icls[i];
-    if (!groups[id]) groups[id] = { x: [], y: [] };
-    groups[id].x.push(u.umap_x[i]);
-    groups[id].y.push(u.umap_y[i]);
+    if (!ICLS_GROUPS[id]) ICLS_GROUPS[id] = { x: [], y: [] };
+    ICLS_GROUPS[id].x.push(u.umap_x[i]);
+    ICLS_GROUPS[id].y.push(u.umap_y[i]);
   }
+  return [...new Set(u.icls)].sort((a,b) => parseInt(a) - parseInt(b));
+})();
 
-  const traces = [];
-  for (const id of iclsSet.sort((a,b) => parseInt(a) - parseInt(b))) {
-    traces.push({
-      x: groups[id].x, y: groups[id].y,
-      mode: "markers", type: "scattergl",
-      name: "icls " + id,
-      marker: { color: DATA.icls_colors[id], size: 2, opacity: 0.5 },
-      hoverinfo: "skip", showlegend: false,
-    });
-  }
-
+function buildIclsTraces(highlight) {
+  const traces = ICLS_SORTED.map(id => ({
+    x: ICLS_GROUPS[id].x, y: ICLS_GROUPS[id].y,
+    mode: "markers", type: "scattergl",
+    marker: {
+      color: DATA.icls_colors[id],
+      size:    highlight === id ? 4   : 2,
+      opacity: highlight == null ? 0.5 : (highlight === id ? 0.9 : 0.1),
+    },
+    hoverinfo: "skip", showlegend: false,
+  }));
   // Invisible clickable hit-box at each centroid
   const cent = DATA.centroids;
   traces.push({
@@ -256,8 +258,11 @@ const N_TOP = DATA.n_top;
     hovertext: cent.icls.map(id => "icls " + id),
     showlegend: false,
   });
+  return traces;
+}
 
-  // Outline + main text annotations (always on top)
+const ICLS_LAYOUT = (function() {
+  const cent = DATA.centroids;
   const outline = [[-0.6,0],[0.6,0],[0,-0.6],[0,0.6],[-0.4,-0.4],[0.4,-0.4],[-0.4,0.4],[0.4,0.4]];
   const annotations = [];
   for (let i = 0; i < cent.icls.length; i++) {
@@ -276,8 +281,7 @@ const N_TOP = DATA.n_top;
       font: { size: 11, color: "#000", family: "Arial, sans-serif" },
     });
   }
-
-  const layout = {
+  return {
     title: { text: "icls UMAP — click a number", font: { size: 13 } },
     xaxis: { title: "UMAP1", zeroline: false, showticklabels: false, showgrid: false },
     yaxis: { title: "UMAP2", zeroline: false, showticklabels: false, showgrid: false,
@@ -288,17 +292,35 @@ const N_TOP = DATA.n_top;
     annotations: annotations,
     plot_bgcolor: "white", paper_bgcolor: "white",
   };
-
-  Plotly.newPlot("icls-umap", traces, layout, { responsive: true, displayModeBar: false });
-
-  document.getElementById("icls-umap").on("plotly_click", function(data) {
-    if (!data || !data.points || !data.points.length) return;
-    const pt = data.points[0];
-    const icls = pt.customdata;
-    if (icls == null || !DATA.marker_data[icls]) return;
-    onIclsSelected(icls);
-  });
 })();
+
+// Keep icls UMAP square — fit to the shorter side of its container
+function fitIclsSquare() {
+  const panel = document.getElementById("panel-icls");
+  const div = document.getElementById("icls-umap");
+  if (!panel || !div) return;
+  const padding = 16;  // matches panel padding
+  const dim = Math.max(50, Math.min(panel.clientWidth, panel.clientHeight) - padding);
+  div.style.width  = dim + "px";
+  div.style.height = dim + "px";
+  if (div.layout) Plotly.Plots.resize(div);
+}
+window.addEventListener("resize", fitIclsSquare);
+fitIclsSquare();
+
+let SELECTED_ICLS = null;
+Plotly.newPlot("icls-umap", buildIclsTraces(null), ICLS_LAYOUT, { responsive: true, displayModeBar: false });
+fitIclsSquare();
+document.getElementById("icls-umap").on("plotly_click", function(data) {
+  if (!data || !data.points || !data.points.length) return;
+  const pt = data.points[0];
+  const icls = pt.customdata;
+  if (icls == null || !DATA.marker_data[icls]) return;
+  // Toggle off if same icls clicked
+  SELECTED_ICLS = SELECTED_ICLS === icls ? null : icls;
+  Plotly.react("icls-umap", buildIclsTraces(SELECTED_ICLS), ICLS_LAYOUT);
+  onIclsSelected(SELECTED_ICLS);
+});
 
 // ── Top-right: Marker Comparison heatmap (mirrors _viewer.py) ─────
 function renderMarkerComparison(icls) {
@@ -406,13 +428,106 @@ function plotCrossUmap(divId, levelIdx, highlightSet, markerAnnotations) {
   const cent = DATA.bottom_centroids[lvl];
   const annotations = [];
   const numOutline = [[-0.4,0],[0.4,0],[0,-0.4],[0,0.4]];
+
+  // Directional offsets for marker annotation text. xanchor/yanchor pin the
+  // box edge to the offset point so the box is pushed away from the cluster.
+  const R = 70;   // cardinal distance
+  const D = 55;   // diagonal distance (~ R/√2)
+  // Index order: 0=N, 1=E, 2=S, 3=W, 4=NE, 5=SE, 6=SW, 7=NW
+  const POSITIONS = [
+    { ax:  0, ay: -R, xanchor: "center", yanchor: "bottom" },  // N
+    { ax:  R, ay:  0, xanchor: "left",   yanchor: "middle" },  // E
+    { ax:  0, ay:  R, xanchor: "center", yanchor: "top"    },  // S
+    { ax: -R, ay:  0, xanchor: "right",  yanchor: "middle" },  // W
+    { ax:  D, ay: -D, xanchor: "left",   yanchor: "bottom" },  // NE
+    { ax:  D, ay:  D, xanchor: "left",   yanchor: "top"    },  // SE
+    { ax: -D, ay:  D, xanchor: "right",  yanchor: "top"    },  // SW
+    { ax: -D, ay: -D, xanchor: "right",  yanchor: "bottom" },  // NW
+  ];
+  // Diagonal target angles in data coords (CCW from +x). +y is up.
+  const DIAG_ANGLES = {
+    4:  Math.PI / 4,        // NE  (+x +y)
+    5: -Math.PI / 4,        // SE  (+x -y)
+    6: -3 * Math.PI / 4,    // SW  (-x -y)
+    7:  3 * Math.PI / 4,    // NW  (-x +y)
+  };
+
+  // ── Build annotated cluster list ─────────────────────────────────
+  const annotated = [];
+  for (let i = 0; i < cent.labels.length; i++) {
+    const lbl = cent.labels[i];
+    if (markerAnnotations && markerAnnotations[lbl] && markerAnnotations[lbl].length) {
+      annotated.push({ lbl, idx: i, cx: cent.x[i], cy: cent.y[i] });
+    }
+  }
+  function angDiff(a, b) {
+    let d = Math.abs(a - b);
+    if (d > Math.PI) d = 2 * Math.PI - d;
+    return d;
+  }
+
+  // ── Assign positions: cardinals by axis-extreme, diagonals by angle ──
+  const posByLabel = {};
+  if (annotated.length > 0) {
+    const remaining = annotated.slice();
+
+    // pick(extractor, compare) → splice the cluster maximizing `extractor`
+    // (compare reverses for min). Returns the picked cluster or null.
+    function pickExtreme(scoreFn) {
+      if (remaining.length === 0) return null;
+      let bestI = 0, bestS = scoreFn(remaining[0]);
+      for (let i = 1; i < remaining.length; i++) {
+        const s = scoreFn(remaining[i]);
+        if (s > bestS) { bestS = s; bestI = i; }
+      }
+      return remaining.splice(bestI, 1)[0];
+    }
+
+    // W = smallest x (use −cx as score)
+    let pick = pickExtreme(a => -a.cx); if (pick) posByLabel[pick.lbl] = 3;
+    // E = largest x
+    pick = pickExtreme(a =>  a.cx);    if (pick) posByLabel[pick.lbl] = 1;
+    // N = largest y
+    pick = pickExtreme(a =>  a.cy);    if (pick) posByLabel[pick.lbl] = 0;
+    // S = smallest y
+    pick = pickExtreme(a => -a.cy);    if (pick) posByLabel[pick.lbl] = 2;
+
+    // Diagonals: pick by angle from remaining group center
+    if (remaining.length > 0) {
+      let gcx = 0, gcy = 0;
+      for (const a of remaining) { gcx += a.cx; gcy += a.cy; }
+      gcx /= remaining.length; gcy /= remaining.length;
+      for (const a of remaining) {
+        a.theta = Math.atan2(a.cy - gcy, a.cx - gcx);
+      }
+      const diagOrder = [7, 4, 5, 6];  // NW, NE, SE, SW
+      for (const pIdx of diagOrder) {
+        if (remaining.length === 0) break;
+        const target = DIAG_ANGLES[pIdx];
+        let bestI = 0, bestDiff = angDiff(remaining[0].theta, target);
+        for (let i = 1; i < remaining.length; i++) {
+          const d = angDiff(remaining[i].theta, target);
+          if (d < bestDiff) { bestDiff = d; bestI = i; }
+        }
+        posByLabel[remaining[bestI].lbl] = pIdx;
+        remaining.splice(bestI, 1);
+      }
+      // Anything left (>8 clusters): cycle through 0..7
+      let fallback = 0;
+      for (const a of remaining) {
+        posByLabel[a.lbl] = fallback++ % POSITIONS.length;
+      }
+    }
+  }
+  const POS_BY_LABEL = posByLabel;
+
+  // Pass 1: cluster number labels (drawn first → lower layer)
   for (let i = 0; i < cent.labels.length; i++) {
     const lbl = cent.labels[i];
     const cx = cent.x[i], cy = cent.y[i];
     const dimmed = hasHighlight && !highlightSet.has(lbl);
     const numColor = dimmed ? "#bbb" : "#000";
 
-    // outlined cluster number
     for (const [dx, dy] of numOutline) {
       annotations.push({
         x: cx, y: cy, text: "<b>" + lbl + "</b>",
@@ -425,22 +540,30 @@ function plotCrossUmap(divId, levelIdx, highlightSet, markerAnnotations) {
       showarrow: false,
       font: { size: 10, color: numColor, family: "Arial, sans-serif" },
     });
+  }
 
-    // marker annotation (only for clusters in markerAnnotations)
-    if (markerAnnotations && markerAnnotations[lbl] && markerAnnotations[lbl].length) {
-      const genes = markerAnnotations[lbl];
-      annotations.push({
-        x: cx, y: cy,
-        ax: 40, ay: -50,          // text appears at offset, arrow points to centroid
-        text: genes.join("<br>"),
-        showarrow: true, arrowhead: 2, arrowsize: 0.8, arrowwidth: 1,
-        arrowcolor: "#444",
-        bgcolor: "rgba(255,255,255,0.9)",
-        bordercolor: "#888", borderwidth: 0.5, borderpad: 2,
-        font: { size: 9, color: "#222", family: "Arial, sans-serif" },
-        align: "left",
-      });
-    }
+  // Pass 2: marker annotation boxes (drawn last → top layer, never blocked by
+  // background cluster numbers from other clusters)
+  for (let i = 0; i < cent.labels.length; i++) {
+    const lbl = cent.labels[i];
+    if (!markerAnnotations || !markerAnnotations[lbl] || !markerAnnotations[lbl].length) continue;
+    const cx = cent.x[i], cy = cent.y[i];
+    const genes = markerAnnotations[lbl];
+    const pIdx = POS_BY_LABEL[lbl] ?? 0;
+    const pos = POSITIONS[pIdx];
+
+    annotations.push({
+      x: cx, y: cy,
+      ax: pos.ax, ay: pos.ay,
+      xanchor: pos.xanchor, yanchor: pos.yanchor,
+      text: genes.join("<br>"),
+      showarrow: true, arrowhead: 2, arrowsize: 0.7, arrowwidth: 1,
+      arrowcolor: "#666",
+      bgcolor: "rgba(255,255,255,0.95)",
+      bordercolor: "#999", borderwidth: 0.5, borderpad: 2,
+      font: { size: 9, color: "#222", family: "Arial, sans-serif" },
+      align: "left",
+    });
   }
 
   const layout = {
@@ -449,7 +572,7 @@ function plotCrossUmap(divId, levelIdx, highlightSet, markerAnnotations) {
     yaxis: { showticklabels: false, showgrid: false, zeroline: false, ticks: "",
              scaleanchor: "x", scaleratio: 1 },
     showlegend: false,
-    margin: { l: 2, r: 2, t: 18, b: 2 },
+    margin: { l: 8, r: 8, t: 22, b: 8 },
     hovermode: false,
     annotations: annotations,
     plot_bgcolor: "white", paper_bgcolor: "white",
@@ -472,6 +595,13 @@ plotAllCross(null, null);
 
 // ── Click handler: update marker panel + bottom 3 UMAPs ───────────
 function onIclsSelected(iclsId) {
+  if (iclsId == null) {
+    // Reset to initial state
+    document.getElementById("marker-placeholder").style.display = "block";
+    document.getElementById("marker-content").style.display = "none";
+    plotAllCross(null, null);
+    return;
+  }
   renderMarkerComparison(iclsId);
 
   const cs = DATA.icls_to_clusters[String(iclsId)];
