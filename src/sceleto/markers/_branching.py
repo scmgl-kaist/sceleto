@@ -80,6 +80,36 @@ class BranchingResult:
         """Get marker list for a specific branch (path part)."""
         return self.markers.get(branch_name, [])
 
+    def interactive_viewer(
+        self,
+        adata: Any,
+        *,
+        save: str = "branching_viewer.html",
+        n_top: Optional[int] = None,
+    ) -> None:
+        """Generate an interactive HTML viewer.
+
+        Tree on the left, 3 UMAPs (one per resolution) in the middle, marker
+        detail panel on the right. Click a tree node to highlight that cluster
+        in the corresponding UMAP and view its branching markers.
+
+        Parameters
+        ----------
+        adata
+            AnnData with ``obsm['X_umap']`` and ``obs[level]`` for each level
+            in ``self.hr.levels``.
+        save
+            Output HTML file path.
+        n_top
+            Max markers to display per branch. Default: ``self.params['n_top']``.
+        """
+        from ._branching_viewer import build_branching_html
+
+        build_branching_html(
+            adata, self, save,
+            n_top=n_top if n_top is not None else self.params["n_top"],
+        )
+
 
 # ---------------------------------------------------------------------------
 # Public API
