@@ -1,33 +1,23 @@
 """Interactive HTML viewer for BranchingResult.
 
 Combines the existing :func:`build_interactive_html` style (icls UMAP +
-marker comparison heatmap) with a bottom panel of 3 small resolution UMAPs
-annotated with branching markers per cluster.
+marker comparison heatmap) with a bottom panel.
 
-Layout (2x2 grid; left column merged):
-    ┌─────────────┬───────────────────────┐
-    │             │ Marker Comparison     │
-    │  icls UMAP  ├───────────────────────┤
-    │ (clickable) │ leiden_1.0 | 2.0 | 4.0│
-    │             │ (annotated UMAPs,     │
-    │             │  not clickable)       │
-    └─────────────┴───────────────────────┘
-
-On clicking an icls cluster in the top-left UMAP:
-- top-right marker comparison heatmap updates (same as
-  :class:`HierarchyRun.interactive_viewer`)
-- bottom-right 3 small UMAPs update with branching markers shown as text:
-    * leiden_1.0 UMAP: ancestor cluster's markers
-    * leiden_2.0 UMAP: all leiden_2.0 children of l1 ancestor, each
-      annotated with its own branching markers
-    * leiden_4.0 UMAP: all leiden_4.0 children of l2 ancestor, similarly
+Bottom panel has two modes:
+- ``mgr=None`` (default): 3 small resolution UMAPs annotated with branching
+  markers per cluster.
+- ``mgr=<MarkerGraphRun>``: edge-activation graph showing, per gene from the
+  marker comparison heatmap x-axis, which edges in the marker graph the gene
+  is active on (uses :func:`MarkerGraphRun.plot_gene_edges_fc` data).
+  Gene is selected by clicking the heatmap column, clicking a chip in the
+  gene strip, mouse wheel on the panel, or ←/→ arrow keys.
 """
 
 from __future__ import annotations
 
 import json
 from pathlib import Path
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Optional
 
 import numpy as np
 import pandas as pd
@@ -41,6 +31,7 @@ def build_branching_html(
     save: str,
     *,
     n_top: int = 5,
+    mgr: Optional[Any] = None,
 ) -> None:
     """Build interactive HTML viewer.
 
@@ -55,6 +46,10 @@ def build_branching_html(
         Output HTML file path.
     n_top
         Number of top markers to display per branch.
+    mgr
+        Optional :class:`sceleto.markers.graph.MarkerGraphRun`. When provided,
+        the bottom-right panel becomes an edge-activation graph (per-gene,
+        from ``mgr.viz``) instead of 3 resolution UMAPs.
     """
     if "X_umap" not in adata.obsm:
         raise ValueError("adata.obsm['X_umap'] required")
@@ -136,6 +131,11 @@ def build_branching_html(
     for branch, marker_list in br.markers.items():
         branching_markers_json[branch] = [g for g, _, _, _ in marker_list[:n_top]]
 
+    # ── Edge graph data (only if mgr provided) ───────────────────────
+    edge_data = None
+    if mgr is not None:
+        edge_data = _build_edge_data(adata, mgr, marker_data)
+
     # ── Compose HTML ─────────────────────────────────────────────────
     data_blob = {
         # Top section
@@ -150,6 +150,8 @@ def build_branching_html(
         "bottom_centroids":  bottom_centroids,
         "icls_to_clusters":  icls_to_clusters,
         "branching_markers": branching_markers_json,
+        # Edge-activation panel (None if mgr not provided)
+        "edge_data":         edge_data,
         # Meta
         "n_top": int(n_top),
     }
@@ -159,6 +161,115 @@ def build_branching_html(
         json.dumps(data_blob, separators=(",", ":")),
     )
     Path(save).write_text(html, encoding="utf-8")
+
+
+def _build_edge_data(adata: Any, mgr: Any, marker_data: Dict[str, Any]) -> Dict[str, Any]:
+    """Extract edge-activation data from MarkerGraphRun for JS rendering.
+
+    Node positions are computed as UMAP centroids of ``adata.obs[mgr.groupby]``
+    (not mgr.viz.pos_dict / paga pos) so the edge graph aligns with the icls
+    UMAP shown on the left.
+
+    Filters mean_mat / gene_edge_fc to the union of marker genes that may
+    appear in any heatmap (the marker_data x-axes), to keep payload small.
+    """
+    viz = mgr.viz
+    if viz.mean_mat is None or viz.gene_edge_fc is None:
+        raise ValueError("mgr.viz must have mean_mat and gene_edge_fc set.")
+
+    nodes = list(viz.G.nodes())
+    node_ids = [str(n) for n in nodes]
+    node_idx = {n: i for i, n in enumerate(nodes)}
+    node_sizes = [float(s) for s in viz.node_sizes]
+
+    # Node positions = UMAP centroids of mgr.groupby (icls etc.), so the
+    # graph layout matches the icls UMAP exactly.
+    if "X_umap" not in adata.obsm:
+        raise ValueError("adata.obsm['X_umap'] required for edge graph layout")
+    groupby = mgr.groupby
+    if groupby not in adata.obs.columns:
+        raise ValueError(f"adata.obs[{groupby!r}] required for edge graph layout")
+    umap_xy = adata.obsm["X_umap"]
+    obs_g = adata.obs[groupby].astype(str).values
+    cent_df = pd.DataFrame(
+        {"x": umap_xy[:, 0], "y": umap_xy[:, 1], "g": obs_g}
+    ).groupby("g", observed=True)[["x", "y"]].median()
+    pos: List[List[float]] = []
+    for n in nodes:
+        key = str(n)
+        if key not in cent_df.index:
+            raise ValueError(f"group {key!r} (mgr node) not found in adata.obs[{groupby!r}]")
+        pos.append([float(cent_df.loc[key, "x"]), float(cent_df.loc[key, "y"])])
+    edges = [
+        [node_idx[u], node_idx[v]] for (u, v) in viz.G.edges()
+    ]
+    edge_pair_to_idx = {(u, v): i for i, (u, v) in enumerate(viz.G.edges())}
+
+    # Marker gene union across all clusters' heatmaps
+    all_marker_genes: set = set()
+    for d in marker_data.values():
+        all_marker_genes.update(d.get("genes", []))
+
+    mm_cols = set(viz.mean_mat.columns)
+    genes = [g for g in all_marker_genes if g in mm_cols]
+
+    # mean_mat (gene → per-node value)
+    gene_mean: Dict[str, List[float]] = {}
+    for g in genes:
+        col = viz.mean_mat[g]
+        vals = []
+        for n in nodes:
+            v = col.get(n, 0.0)
+            try:
+                v = float(v)
+            except (TypeError, ValueError):
+                v = 0.0
+            vals.append(round(v, 3))
+        gene_mean[g] = vals
+
+    # gene_edge_fc (gene → [[edge_idx, fc], ...])
+    gene_edge_fc_out: Dict[str, List[List[float]]] = {}
+    for g in genes:
+        fc_map = viz.gene_edge_fc.get(g, {})
+        items: List[List[float]] = []
+        for (u, v), fc in fc_map.items():
+            ei = edge_pair_to_idx.get((u, v))
+            if ei is None:
+                continue
+            try:
+                items.append([ei, round(float(fc), 3)])
+            except (TypeError, ValueError):
+                continue
+        if items:
+            gene_edge_fc_out[g] = items
+
+    # FC bin defaults match plot_gene_edges_fc
+    fc_bins = [0.0, 3.0, 4.0, 5.0, 6.0, float("inf")]
+    fc_colors = ["lightgrey", "#9fdab8", "#57b8d0", "#1d7eb7", "#084081"]
+    # JSON has no Infinity; sentinel handled in JS
+    fc_bins_js = [b if np.isfinite(b) else None for b in fc_bins]
+
+    # UMAP range (with small padding) so icls UMAP and edge graph share axes
+    pad_x = (float(umap_xy[:, 0].max()) - float(umap_xy[:, 0].min())) * 0.03
+    pad_y = (float(umap_xy[:, 1].max()) - float(umap_xy[:, 1].min())) * 0.03
+    umap_range = {
+        "x": [float(umap_xy[:, 0].min()) - pad_x, float(umap_xy[:, 0].max()) + pad_x],
+        "y": [float(umap_xy[:, 1].min()) - pad_y, float(umap_xy[:, 1].max()) + pad_y],
+    }
+
+    return {
+        "node_ids":     node_ids,
+        "node_pos":     pos,
+        "node_sizes":   node_sizes,
+        "edges":        edges,
+        "gene_mean":    gene_mean,
+        "gene_edge_fc": gene_edge_fc_out,
+        "fc_bins":      fc_bins_js,
+        "fc_colors":    fc_colors,
+        "bg_color":     "lightgrey",
+        "bg_alpha":     0.25,
+        "umap_range":   umap_range,
+    }
 
 
 _HTML_TEMPLATE = r"""<!DOCTYPE html>
@@ -172,7 +283,7 @@ _HTML_TEMPLATE = r"""<!DOCTYPE html>
   body { font-family: 'Segoe UI', Tahoma, sans-serif; background: #f5f5f5; color: #222; }
   #app {
     display: grid;
-    grid-template-columns: 2fr 5fr;
+    grid-template-columns: 540px 1fr;
     grid-template-rows: 1fr 1fr;
     height: 100vh;
     gap: 4px;
@@ -181,12 +292,37 @@ _HTML_TEMPLATE = r"""<!DOCTYPE html>
   #panel-icls   { grid-column: 1; grid-row: 1 / span 2; background: white; border: 1px solid #ddd; padding: 8px;  overflow: hidden;
                   display: flex; align-items: center; justify-content: center; }
   #panel-marker { grid-column: 2; grid-row: 1;          background: white; border: 1px solid #ddd; padding: 12px; overflow: auto; }
-  #panel-cross  { grid-column: 2; grid-row: 2;          background: white; border: 1px solid #ddd; padding: 4px;  overflow: hidden; }
+  #panel-cross  { grid-column: 2; grid-row: 2;          background: white; border: 1px solid #ddd; padding: 4px;  overflow: auto;
+                  display: flex; flex-direction: column; outline: none; }
 
-  /* Fixed plot sizes — do not resize on window changes. Small windows clip. */
+  /* Fixed plot sizes — do not resize on window changes. */
   #icls-umap   { width: 520px; height: 520px; }
   #cross-umaps { display: flex; gap: 2px; }
   .cross-cell  { width: 320px; height: 320px; flex: 0 0 320px; }
+
+  /* Edge-activation panel */
+  #gene-chips {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 3px;
+    padding: 4px 6px;
+    max-width: 540px;
+    flex: 0 0 auto;
+    border-bottom: 1px solid #eee;
+  }
+  .gene-chip {
+    padding: 2px 6px; font-size: 10px;
+    background: #f0f0f0; border: 1px solid #ccc; border-radius: 8px;
+    cursor: pointer; white-space: nowrap; user-select: none;
+    text-align: center;
+  }
+  .gene-chip:hover { background: #e0e0e0; }
+  .gene-chip.selected { background: #3182bd; color: white; border-color: #1d6ea3; }
+  #edge-graph { width: 520px; height: 520px; flex: 0 0 520px; }
+  .edge-panel-hint { font-size: 10px; color: #999; padding: 2px 6px; }
+  th.gene-th { cursor: pointer; }
+  th.gene-th:hover { background: #d8e8f5; }
+  th.gene-th.selected { background: #3182bd; color: white; }
 
   h2 { font-size: 13px; color: #555; margin-bottom: 6px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.05em; }
   .placeholder { color: #aaa; font-size: 12px; text-align: center; margin-top: 30px; }
@@ -210,12 +346,17 @@ _HTML_TEMPLATE = r"""<!DOCTYPE html>
     <div class="placeholder" id="marker-placeholder">Click a path on the UMAP.</div>
     <div id="marker-content" style="display:none;"></div>
   </div>
-  <div id="panel-cross">
+  <div id="panel-cross" tabindex="0">
+    <!-- mgr=None mode -->
     <div id="cross-umaps">
       <div id="cross-0" class="cross-cell"></div>
       <div id="cross-1" class="cross-cell"></div>
       <div id="cross-2" class="cross-cell"></div>
     </div>
+    <!-- mgr=MarkerGraphRun mode -->
+    <div id="gene-chips" style="display:none;"></div>
+    <div id="edge-graph" style="display:none;"></div>
+    <div class="edge-panel-hint" id="edge-hint" style="display:none;">click cell · click chip · wheel · ← →</div>
   </div>
 </div>
 
@@ -294,8 +435,13 @@ const ICLS_LAYOUT = (function() {
   };
 })();
 
+// Mode flag: edge-activation panel vs 3-UMAP panel.
+const HAS_EDGE = (DATA.edge_data != null);
+
 // Fixed-size plot — no resize on window changes; CSS sets 520x520.
 let SELECTED_ICLS = null;
+let SORTED_GENES = [];      // current heatmap x-axis order
+let SELECTED_GENE = null;
 Plotly.newPlot("icls-umap", buildIclsTraces(null), ICLS_LAYOUT, { responsive: false, displayModeBar: false });
 document.getElementById("icls-umap").on("plotly_click", function(data) {
   if (!data || !data.points || !data.points.length) return;
@@ -323,6 +469,7 @@ function renderMarkerComparison(icls) {
     }
     return a.localeCompare(b);
   });
+  SORTED_GENES = sortedGenes;
 
   const cellW = 28, labelColW = 120;
   const tableW = labelColW + sortedGenes.length * cellW;
@@ -330,8 +477,9 @@ function renderMarkerComparison(icls) {
   let html = '<div class="info"><b>path ' + icls + '</b> &nbsp; (' + d.n_cells + ' cells)<br>'
            + d.levels.map(l => '<code>' + l + '</code>').join(' &rarr; ') + '</div>';
   html += '<table class="heatmap" style="width:' + tableW + 'px;"><thead><tr><th style="width:' + labelColW + 'px;"></th>';
+  const thCls = HAS_EDGE ? ' class="gene-th"' : '';
   for (const g of sortedGenes) {
-    html += '<th style="writing-mode:vertical-rl; transform:rotate(180deg);">' + g + '</th>';
+    html += '<th' + thCls + ' data-gene="' + g + '" style="writing-mode:vertical-rl; transform:rotate(180deg);">' + g + '</th>';
   }
   html += '</tr></thead><tbody>';
   for (let i = 0; i < d.levels.length; i++) {
@@ -348,6 +496,11 @@ function renderMarkerComparison(icls) {
         + '<span style="background:#f7f7f7;"></span> not in top-' + N_TOP
         + '</div>';
   panel.innerHTML = html;
+  if (HAS_EDGE) {
+    panel.querySelectorAll("th.gene-th").forEach(el => {
+      el.addEventListener("click", () => setSelectedGene(el.dataset.gene));
+    });
+  }
 }
 
 // ── Bottom: 3 small UMAPs with marker annotations ─────────────────
@@ -578,19 +731,221 @@ function plotAllCross(highlightSets, annotationsByLevel) {
   }
 }
 
-// ── Initial state: 3 UMAPs with no highlight, no marker text ──────
-plotAllCross(null, null);
+// ── Initial state ─────────────────────────────────────────────────
+if (HAS_EDGE) {
+  // Hide 3-UMAP mode; show edge-graph panel
+  document.getElementById("cross-umaps").style.display = "none";
+  document.getElementById("gene-chips").style.display = "flex";
+  document.getElementById("edge-graph").style.display = "block";
+  document.getElementById("edge-hint").style.display = "block";
+} else {
+  plotAllCross(null, null);
+}
 
-// ── Click handler: update marker panel + bottom 3 UMAPs ───────────
+// ── Edge-activation panel ─────────────────────────────────────────
+// fc_bins entries may be null (representing +Infinity from JSON).
+function fcBinIdx(fc) {
+  const bins = DATA.edge_data.fc_bins;
+  const nBins = bins.length - 1;
+  for (let i = 0; i < nBins; i++) {
+    const lo = bins[i] == null ? -Infinity : bins[i];
+    const hi = bins[i + 1] == null ? Infinity : bins[i + 1];
+    if (fc >= lo && fc < hi) return i;
+  }
+  return nBins - 1;
+}
+
+function renderGeneChips() {
+  const div = document.getElementById("gene-chips");
+  if (!SORTED_GENES.length) { div.innerHTML = ""; return; }
+  const ed = DATA.edge_data;
+  div.innerHTML = SORTED_GENES.map(g => {
+    const has = (g in ed.gene_mean);
+    const sel = g === SELECTED_GENE ? " selected" : "";
+    const dim = has ? "" : " style=\"opacity:0.4;\"";
+    return '<span class="gene-chip' + sel + '" data-gene="' + g + '"' + dim + '>' + g + '</span>';
+  }).join("");
+  div.querySelectorAll(".gene-chip").forEach(el => {
+    el.addEventListener("click", () => setSelectedGene(el.dataset.gene));
+  });
+}
+
+function highlightGeneSelection() {
+  document.querySelectorAll("#gene-chips .gene-chip").forEach(el => {
+    el.classList.toggle("selected", el.dataset.gene === SELECTED_GENE);
+  });
+  document.querySelectorAll("th.gene-th").forEach(el => {
+    el.classList.toggle("selected", el.dataset.gene === SELECTED_GENE);
+  });
+  const chip = document.querySelector("#gene-chips .gene-chip.selected");
+  if (chip) chip.scrollIntoView({ block: "nearest", inline: "center" });
+  const th = document.querySelector("th.gene-th.selected");
+  if (th) th.scrollIntoView({ block: "nearest", inline: "center" });
+}
+
+function renderEdgeGraph(gene) {
+  const ed = DATA.edge_data;
+  const div = document.getElementById("edge-graph");
+  const vals = ed.gene_mean[gene] || ed.node_ids.map(() => 0);
+  let vmin = Infinity, vmax = -Infinity;
+  for (const v of vals) { if (v < vmin) vmin = v; if (v > vmax) vmax = v; }
+  if (!isFinite(vmin) || vmin === vmax) { vmin = 0; vmax = Math.max(1, vmax); }
+
+  const fcMap = new Map();
+  for (const [ei, fc] of (ed.gene_edge_fc[gene] || [])) fcMap.set(ei, fc);
+
+  const nColors = ed.fc_colors.length;
+
+  // Nodes: marker size scaled from node_sizes (matplotlib s ~ area; rough sqrt scaling)
+  const nodeSize = ed.node_sizes.map(s => Math.max(14, Math.sqrt(s) * 1.4));
+  const traces = [{
+    x: ed.node_pos.map(p => p[0]),
+    y: ed.node_pos.map(p => p[1]),
+    mode: "markers", type: "scatter",
+    marker: {
+      color: vals,
+      // Explicit white→black (matplotlib Greys convention; Plotly's named
+      // "Greys" is the opposite, so we hard-code stops).
+      colorscale: [[0, "rgb(255,255,255)"], [1, "rgb(0,0,0)"]],
+      cmin: vmin, cmax: vmax,
+      size: nodeSize,
+      line: { color: "#000", width: 0.6 },
+    },
+    text: ed.node_ids,
+    hovertemplate: "node %{text}<br>expr=%{marker.color:.2f}<extra></extra>",
+    showlegend: false,
+  }];
+
+  // Edges as arrow annotations (one per edge). Colored by FC bin or grey background.
+  const annotations = [];
+  for (let i = 0; i < ed.edges.length; i++) {
+    const [u, v] = ed.edges[i];
+    const has = fcMap.has(i);
+    const color = has ? ed.fc_colors[fcBinIdx(fcMap.get(i))] : ed.bg_color;
+    const opacity = has ? 1.0 : ed.bg_alpha;
+    annotations.push({
+      x: ed.node_pos[v][0], y: ed.node_pos[v][1],   // arrowhead at target
+      ax: ed.node_pos[u][0], ay: ed.node_pos[u][1], // tail at source
+      xref: "x", yref: "y", axref: "x", ayref: "y",
+      showarrow: true, arrowhead: 2, arrowsize: 1.0,
+      arrowwidth: has ? 2.2 : 1.5,
+      arrowcolor: color, opacity: opacity,
+      standoff: 10, startstandoff: 8,
+      text: "",
+    });
+  }
+
+  // Node labels: white outline (8 directions) + black center for contrast
+  const numOutline = [[-0.6,0],[0.6,0],[0,-0.6],[0,0.6],
+                      [-0.45,-0.45],[0.45,-0.45],[-0.45,0.45],[0.45,0.45]];
+  for (let i = 0; i < ed.node_ids.length; i++) {
+    const cx = ed.node_pos[i][0], cy = ed.node_pos[i][1];
+    const lbl = ed.node_ids[i];
+    for (const [dx, dy] of numOutline) {
+      annotations.push({
+        x: cx, y: cy, text: "<b>" + lbl + "</b>",
+        showarrow: false, xshift: dx, yshift: dy,
+        font: { size: 10, color: "#fff", family: "Arial, sans-serif" },
+      });
+    }
+    annotations.push({
+      x: cx, y: cy, text: "<b>" + lbl + "</b>",
+      showarrow: false,
+      font: { size: 10, color: "#000", family: "Arial, sans-serif" },
+    });
+  }
+
+  // FC legend
+  const bins = ed.fc_bins;
+  for (let b = 0; b < nColors; b++) {
+    const lo = bins[b], hi = bins[b + 1];
+    const label = (hi == null) ? ("≥ " + lo) : (lo + "–" + hi);
+    annotations.push({
+      xref: "paper", yref: "paper",
+      x: 1.01, y: 0.95 - b * 0.06,
+      text: '<span style="color:' + ed.fc_colors[b] + ';">■</span> ' + label,
+      showarrow: false, xanchor: "left",
+      font: { size: 10, color: "#333" },
+    });
+  }
+
+  // Lock edge graph axes to UMAP data range so it aligns with the icls UMAP
+  // (which autoranges to the same cells; their min/max match within padding).
+  const xRange = DATA.edge_data.umap_range.x.slice();
+  const yRange = DATA.edge_data.umap_range.y.slice();
+  const layout = {
+    title: { text: "gene: " + gene, font: { size: 12 } },
+    xaxis: { showticklabels: false, showgrid: false, zeroline: false, ticks: "", range: xRange },
+    yaxis: { showticklabels: false, showgrid: false, zeroline: false, ticks: "", range: yRange },
+    showlegend: false,
+    margin: { l: 8, r: 90, t: 26, b: 8, autoexpand: false },
+    hovermode: "closest",
+    annotations: annotations,
+    plot_bgcolor: "white", paper_bgcolor: "white",
+  };
+  Plotly.react(div, traces, layout, { responsive: false, displayModeBar: false });
+}
+
+function setSelectedGene(gene) {
+  if (!gene) return;
+  SELECTED_GENE = gene;
+  renderEdgeGraph(gene);
+  highlightGeneSelection();
+}
+
+function stepGene(delta) {
+  if (!SORTED_GENES.length) return;
+  let idx = SORTED_GENES.indexOf(SELECTED_GENE);
+  if (idx < 0) idx = 0;
+  const next = idx + delta;
+  if (next < 0 || next >= SORTED_GENES.length) return;  // clamp at endpoints
+  setSelectedGene(SORTED_GENES[next]);
+}
+
+function clearEdgePanel() {
+  SORTED_GENES = [];
+  SELECTED_GENE = null;
+  document.getElementById("gene-chips").innerHTML = "";
+  Plotly.purge("edge-graph");
+}
+
+if (HAS_EDGE) {
+  const xPanel = document.getElementById("panel-cross");
+  xPanel.addEventListener("wheel", function(e) {
+    if (!SORTED_GENES.length) return;
+    e.preventDefault();
+    stepGene(e.deltaY > 0 ? 1 : -1);
+  }, { passive: false });
+  xPanel.addEventListener("mouseenter", () => xPanel.focus());
+  document.addEventListener("keydown", function(e) {
+    if (!SORTED_GENES.length) return;
+    if (e.key === "ArrowRight") { stepGene(1); e.preventDefault(); }
+    else if (e.key === "ArrowLeft") { stepGene(-1); e.preventDefault(); }
+  });
+}
+
+// ── Click handler: update marker panel + bottom panel ─────────────
 function onIclsSelected(iclsId) {
   if (iclsId == null) {
-    // Reset to initial state
     document.getElementById("marker-placeholder").style.display = "block";
     document.getElementById("marker-content").style.display = "none";
-    plotAllCross(null, null);
+    if (HAS_EDGE) clearEdgePanel();
+    else plotAllCross(null, null);
     return;
   }
   renderMarkerComparison(iclsId);
+
+  if (HAS_EDGE) {
+    // Reset to first gene per phase 11 design (option a)
+    renderGeneChips();
+    if (SORTED_GENES.length) {
+      // Prefer a gene that has edge-fc data; fall back to first
+      const ed = DATA.edge_data;
+      let first = SORTED_GENES.find(g => g in ed.gene_mean) || SORTED_GENES[0];
+      setSelectedGene(first);
+    }
+    return;
+  }
 
   const cs = DATA.icls_to_clusters[String(iclsId)];
   if (!cs) return;
