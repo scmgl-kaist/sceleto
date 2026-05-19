@@ -7,7 +7,6 @@ import pandas as pd
 from ._simple import MarkersSimple
 from ._gene_filter import GeneFilter
 from ._hierarchy import hierarchy as _hierarchy, HierarchyRun
-from ._branching import branching_markers, BranchingResult
 
 
 def simple(adata, groupby: str, **kwargs) -> MarkersSimple:
@@ -118,11 +117,11 @@ def sweep_fc(adata, groupby: str, **kwargs):
 def __dir__():
     return [
         "simple", "classic", "marker", "hierarchy", "sweep_fc",
-        "branching_markers", "BranchingResult", "GeneFilter",
+        "GeneFilter",
     ]
 
 
 __all__ = [
     "simple", "classic", "marker", "hierarchy", "sweep_fc",
-    "branching_markers", "BranchingResult", "GeneFilter",
+    "GeneFilter",
 ]

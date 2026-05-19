@@ -48,17 +48,27 @@ class HierarchyRun:
     def interactive_viewer(
         self,
         adata,
+        mgr,
         *,
         save: str = "interactive_viewer.html",
         n_top: Optional[int] = None,
     ) -> None:
-        """Generate an interactive HTML viewer for marker comparison.
+        """Generate an interactive HTML viewer with edge-activation panel.
+
+        Layout: icls UMAP (left) + marker comparison heatmap (top-right) +
+        per-gene edge-activation graph (bottom-right). In batch mode the
+        heatmap shows per-batch expression strips instead of presence.
 
         Parameters
         ----------
         adata
             AnnData with ``obs['icls']`` (set by hierarchy) and
             ``obsm['X_umap']``.
+        mgr
+            :class:`sceleto.markers.graph.MarkerGraphRun` driving the
+            bottom-right edge-activation graph. Typically::
+
+                mgr = scl.markers.marker(adata, "icls")
         save
             Output HTML file path.
         n_top
@@ -77,15 +87,16 @@ class HierarchyRun:
                 batch_expression=self.batch_expression,
                 n_top=n_top,
                 save=save,
+                mgr=mgr,
             )
         else:
-            from ._viewer import build_interactive_html
-            build_interactive_html(
+            from ._branching_viewer import build_branching_html
+            build_branching_html(
                 adata=adata,
-                icls_full_dict=self.icls_full_dict,
-                full_gene_lists=self.full_gene_lists,
-                n_top=n_top,
+                hr=self,
                 save=save,
+                mgr=mgr,
+                n_top=n_top,
             )
 
     def compare_markers(

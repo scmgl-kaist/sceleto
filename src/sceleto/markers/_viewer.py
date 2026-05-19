@@ -407,8 +407,12 @@ def build_interactive_html_batch(
     batch_expression: Dict[str, Any],
     n_top: int,
     save: str,
+    mgr: Any,
 ) -> None:
     """Build and write the interactive batch HTML viewer.
+
+    Layout: icls UMAP (left) + per-batch heatmap (top-right) + edge-activation
+    panel (bottom-right; per-gene marker graph from mgr).
 
     Parameters
     ----------
@@ -424,9 +428,17 @@ def build_interactive_html_batch(
         Number of top markers to display.
     save
         Output file path.
+    mgr
+        :class:`sceleto.markers.graph.MarkerGraphRun` for the edge-activation
+        panel.
     """
     import matplotlib.cm as _cm
     import matplotlib.colors as _mc
+
+    from ._edge_panel import build_edge_data, EDGE_PANEL_CSS, EDGE_PANEL_JS
+
+    if mgr is None:
+        raise ValueError("mgr is required (MarkerGraphRun for the edge-activation panel)")
 
     # ── UMAP / icls data ──────────────────────────────────────────
     umap_coords = adata.obsm["X_umap"]
@@ -446,142 +458,166 @@ def build_interactive_html_batch(
     centroids = df.groupby("icls")[["umap_x", "umap_y"]].median().reset_index()
     centroids_json = centroids.to_dict(orient="list")
 
+    edge_data = build_edge_data(adata, mgr, marker_data)
+
     # ── Batch colors (for legend display) ────────────────────────
     batches_list = list(next(iter(batch_expression.values())).batches)
     n_b = len(batches_list)
     _cmap = _cm.tab10 if n_b <= 10 else _cm.tab20
     batch_colors = {b: _mc.to_hex(_cmap(i)) for i, b in enumerate(batches_list)}
 
+    data_blob = {
+        "umap":          umap_json,
+        "marker_data":   marker_data,
+        "centroids":     centroids_json,
+        "icls_colors":   icls_colors,
+        "batch_colors":  batch_colors,
+        "edge_data":     edge_data,
+        "n_top":         int(n_top),
+    }
+
     # ── HTML ─────────────────────────────────────────────────────
-    html = f"""<!DOCTYPE html>
+    template = r"""<!DOCTYPE html>
 <html lang="en">
 <head>
 <meta charset="UTF-8">
 <title>sceleto Batch Marker Viewer</title>
 <script src="https://cdn.plot.ly/plotly-2.35.0.min.js"></script>
 <style>
-  * {{ margin: 0; padding: 0; box-sizing: border-box; }}
-  body {{ font-family: 'Segoe UI', Tahoma, sans-serif; background: #f5f5f5; }}
-  #container {{ display: flex; height: 100vh; }}
-  #umap-panel {{ width: 550px; min-width: 400px; padding: 10px; display: flex; align-items: center; justify-content: center; }}
-  #marker-panel {{ flex: 1; padding: 16px; overflow: auto; background: white; border-left: 1px solid #ddd; box-shadow: -2px 0 8px rgba(0,0,0,0.05); }}
-  #marker-panel h2 {{ font-size: 15px; margin-bottom: 8px; color: #333; }}
-  .placeholder {{ color: #999; font-size: 13px; margin-top: 40px; text-align: center; }}
-  .info {{ font-size: 12px; color: #666; margin-bottom: 12px; }}
-  table.heatmap {{ border-collapse: collapse; font-size: 11px; }}
-  table.heatmap th, table.heatmap td {{ text-align: center; padding: 0; }}
-  table.heatmap th:first-child {{ padding: 3px 8px; white-space: nowrap; }}
-  table.heatmap td:first-child {{ padding: 3px 8px; white-space: nowrap; text-align: left; font-weight: bold; }}
-  table.heatmap th {{ background: #f0f0f0; position: sticky; top: 0; z-index: 1; }}
-  .legend-row {{ display: flex; align-items: center; gap: 12px; font-size: 11px; color: #666; margin-top: 10px; flex-wrap: wrap; }}
-  .legend-swatch {{ display: inline-block; width: 14px; height: 14px; vertical-align: middle; border: 1px solid #aaa; margin-right: 3px; }}
-  .batch-legend {{ display: flex; flex-wrap: wrap; gap: 6px; font-size: 11px; margin-top: 8px; }}
-  .batch-legend-item {{ display: flex; align-items: center; gap: 3px; white-space: nowrap; padding: 2px 5px; }}
-  .batch-dot {{ width: 10px; height: 10px; border-radius: 2px; border: 1px solid #999; flex-shrink: 0; }}
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body { font-family: 'Segoe UI', Tahoma, sans-serif; background: #f5f5f5; color: #222; }
+  #app {
+    display: grid;
+    grid-template-columns: 540px 1fr;
+    grid-template-rows: 1fr 1fr;
+    height: 100vh;
+    gap: 4px;
+    padding: 4px;
+  }
+  #panel-icls   { grid-column: 1; grid-row: 1 / span 2; background: white; border: 1px solid #ddd; padding: 8px;  overflow: hidden;
+                  display: flex; align-items: center; justify-content: center; }
+  #panel-marker { grid-column: 2; grid-row: 1;          background: white; border: 1px solid #ddd; padding: 12px; overflow: auto; }
+  #panel-cross  { grid-column: 2; grid-row: 2;          background: white; border: 1px solid #ddd; padding: 4px;  overflow: auto;
+                  display: flex; flex-direction: column; outline: none; }
+  #icls-umap { width: 520px; height: 520px; }
+
+  h2 { font-size: 13px; color: #555; margin-bottom: 6px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.05em; }
+  .placeholder { color: #aaa; font-size: 12px; text-align: center; margin-top: 30px; }
+  .info { font-size: 12px; color: #666; margin-bottom: 12px; }
+
+  table.heatmap { border-collapse: collapse; font-size: 11px; }
+  table.heatmap th, table.heatmap td { text-align: center; padding: 0; }
+  table.heatmap th:first-child { padding: 3px 8px; white-space: nowrap; }
+  table.heatmap td:first-child { padding: 3px 8px; white-space: nowrap; text-align: left; font-weight: bold; }
+  table.heatmap th { background: #f0f0f0; position: sticky; top: 0; z-index: 1; }
+  .legend-row { display: flex; align-items: center; gap: 12px; font-size: 11px; color: #666; margin-top: 10px; flex-wrap: wrap; }
+  .legend-swatch { display: inline-block; width: 14px; height: 14px; vertical-align: middle; border: 1px solid #aaa; margin-right: 3px; }
+  .batch-legend { display: flex; flex-wrap: wrap; gap: 6px; font-size: 11px; margin-top: 8px; }
+  .batch-legend-item { display: flex; align-items: center; gap: 3px; white-space: nowrap; padding: 2px 5px; }
+  .batch-dot { width: 10px; height: 10px; border-radius: 2px; border: 1px solid #999; flex-shrink: 0; }
+
+/*__EDGE_CSS__*/
 </style>
 </head>
 <body>
-<div id="container">
-  <div id="umap-panel">
-    <div id="umap-plot" style="width:520px; height:520px;"></div>
-  </div>
-  <div id="marker-panel">
+<div id="app">
+  <div id="panel-icls"><div id="icls-umap"></div></div>
+  <div id="panel-marker">
     <h2>Batch Marker Comparison</h2>
-    <div class="placeholder">Click an icls cluster on the UMAP to view markers.</div>
+    <div class="placeholder" id="marker-placeholder">Click a path on the UMAP.</div>
     <div id="marker-content" style="display:none;"></div>
+  </div>
+  <div id="panel-cross" tabindex="0">
+    <div id="gene-chips"></div>
+    <div id="edge-graph"></div>
+    <div class="edge-panel-hint">click cell · click chip · wheel · ← →</div>
   </div>
 </div>
 
 <script>
-// ── Data ──────────────────────────────────────────────────────
-const umapData = {json.dumps(umap_json)};
-const markerData = {json.dumps(marker_data)};
-const centroids = {json.dumps(centroids_json)};
-const iclsColors = {json.dumps(icls_colors)};
-const batchColors = {json.dumps(batch_colors)};
-const N_TOP = {n_top};
+const DATA = /*__DATA__*/;
+const umapData = DATA.umap;
+const markerData = DATA.marker_data;
+const centroids = DATA.centroids;
+const iclsColors = DATA.icls_colors;
+const batchColors = DATA.batch_colors;
+const N_TOP = DATA.n_top;
 
-// ── State ─────────────────────────────────────────────────────
 let selectedIcls = null;
+let SORTED_GENES = [];
+let SELECTED_GENE = null;
 
 // ── Pre-group cells by icls ───────────────────────────────────
-const iclsGroups = {{}};
-for (let i = 0; i < umapData.icls.length; i++) {{
+const iclsGroups = {};
+for (let i = 0; i < umapData.icls.length; i++) {
   const ic = String(umapData.icls[i]);
-  if (!iclsGroups[ic]) iclsGroups[ic] = {{x:[], y:[]}};
+  if (!iclsGroups[ic]) iclsGroups[ic] = {x:[], y:[]};
   iclsGroups[ic].x.push(umapData.umap_x[i]);
   iclsGroups[ic].y.push(umapData.umap_y[i]);
-}}
+}
 const sortedIcls = Object.keys(iclsGroups).sort((a,b) => parseInt(a) - parseInt(b));
 
-// ── Centroid annotations ──────────────────────────────────────
-const outlineOffsets = [[-0.8,0],[0.8,0],[0,-0.8],[0,0.8]];
+const outlineOffsets = [[-0.6,0],[0.6,0],[0,-0.6],[0,0.6],[-0.4,-0.4],[0.4,-0.4],[-0.4,0.4],[0.4,0.4]];
 const annotations = [];
-for (let i = 0; i < centroids.icls.length; i++) {{
+for (let i = 0; i < centroids.icls.length; i++) {
   const id = centroids.icls[i];
   const cx = centroids.umap_x[i], cy = centroids.umap_y[i];
-  for (const [dx, dy] of outlineOffsets) {{
-    annotations.push({{x:cx, y:cy, text:'<b>'+id+'</b>', showarrow:false,
-      xshift:dx, yshift:dy, font:{{size:11, color:'#fff', family:'Arial, sans-serif'}}}});
-  }}
-  annotations.push({{x:cx, y:cy, text:'<b>'+id+'</b>', showarrow:false,
-    font:{{size:11, color:'#000', family:'Arial, sans-serif'}}}});
-}}
+  for (const [dx, dy] of outlineOffsets) {
+    annotations.push({x:cx, y:cy, text:'<b>'+id+'</b>', showarrow:false,
+      xshift:dx, yshift:dy, font:{size:11, color:'#fff', family:'Arial, sans-serif'}});
+  }
+  annotations.push({x:cx, y:cy, text:'<b>'+id+'</b>', showarrow:false,
+    font:{size:11, color:'#000', family:'Arial, sans-serif'}});
+}
 
-const iclsLayout = {{
-  title: 'UMAP — icls (click to highlight)',
-  xaxis: {{title:'UMAP1', zeroline:false}},
-  yaxis: {{title:'UMAP2', zeroline:false}},
-  showlegend: false, margin: {{l:50, r:10, t:40, b:40}},
+const iclsLayout = {
+  title: { text: 'path UMAP — click a number', font: { size: 13 } },
+  xaxis: { title: 'UMAP1', zeroline: false, showticklabels: false, showgrid: false },
+  yaxis: { title: 'UMAP2', zeroline: false, showticklabels: false, showgrid: false },
+  showlegend: false, margin: { l: 30, r: 10, t: 30, b: 30, autoexpand: false },
   hovermode: 'closest', annotations: annotations,
-}};
+  plot_bgcolor: 'white', paper_bgcolor: 'white',
+};
 
-// ── icls traces ───────────────────────────────────────────────
-function buildIclsTraces(highlight) {{
-  const traces = sortedIcls.map(id => ({{
+function buildIclsTraces(highlight) {
+  const traces = sortedIcls.map(id => ({
     x: iclsGroups[id].x, y: iclsGroups[id].y,
     mode: 'markers', type: 'scattergl',
-    marker: {{
+    marker: {
       color: iclsColors[id],
       size: highlight === id ? 4 : 2,
       opacity: highlight == null ? 0.5 : (highlight === id ? 0.9 : 0.1),
-    }},
+    },
     hoverinfo: 'skip', showlegend: false,
-  }}));
-  traces.push({{
+  }));
+  traces.push({
     x: centroids.umap_x, y: centroids.umap_y,
     mode: 'markers', type: 'scattergl',
-    marker: {{size:22, color:'rgba(0,0,0,0)', line:{{width:0}}}},
+    marker: {size:22, color:'rgba(0,0,0,0)', line:{width:0}},
     customdata: centroids.icls,
-    hoverinfo: 'text', hovertext: centroids.icls.map(id => 'icls '+id),
+    hoverinfo: 'text', hovertext: centroids.icls.map(id => 'path '+id),
     showlegend: false,
-  }});
+  });
   return traces;
-}}
+}
 
-// Initial render
-Plotly.newPlot('umap-plot', buildIclsTraces(null), iclsLayout, {{responsive:true}});
+Plotly.newPlot('icls-umap', buildIclsTraces(null), iclsLayout, { responsive: false, displayModeBar: false });
 
-// ── UMAP click → icls highlight + heatmap ────────────────────
-document.getElementById('umap-plot').on('plotly_click', function(data) {{
+document.getElementById('icls-umap').on('plotly_click', function(data) {
+  if (!data || !data.points || !data.points.length) return;
   const pt = data.points[0];
   const icls = pt.customdata;
-  if (!icls) return;
+  if (icls == null || !markerData[icls]) return;
   selectedIcls = selectedIcls === icls ? null : icls;
-  Plotly.react('umap-plot', buildIclsTraces(selectedIcls), iclsLayout);
-  if (!markerData[icls]) return;
-  const panel = document.getElementById('marker-content');
-  document.querySelector('.placeholder').style.display = 'none';
-  panel.style.display = 'block';
-  panel.innerHTML = renderBatchHeatmap(markerData[icls]);
-}});
+  Plotly.react('icls-umap', buildIclsTraces(selectedIcls), iclsLayout);
+  onIclsSelected(selectedIcls);
+});
 
-// ── Heatmap render ────────────────────────────────────────────
-function redsColor(v) {{
+function redsColor(v) {
   return 'rgb(' + Math.round(255-v*152) + ',' + Math.round(245-v*245) + ',' + Math.round(240-v*227) + ')';
-}}
+}
 
-function renderBatchHeatmap(d) {{
+function renderBatchHeatmap(d) {
   const genes = d.genes, levels = d.levels, batches = d.batches;
   const batch_vals = d.batch_vals, presence = d.presence, n_cells = d.n_cells;
   const CELL_H = 22, LABEL_W = 130, cellW = 26;
@@ -594,33 +630,33 @@ function renderBatchHeatmap(d) {{
 
   html += '<table class="heatmap" style="width:' + tableW + 'px;"><thead><tr>';
   html += '<th style="width:' + LABEL_W + 'px;"></th>';
-  for (const g of genes) {{
-    html += '<th style="width:' + cellW + 'px;">' +
+  for (const g of genes) {
+    html += '<th class="gene-th" data-gene="' + g + '" style="width:' + cellW + 'px;">' +
             '<div style="writing-mode:vertical-rl; transform:rotate(180deg); padding:2px 0;">' + g + '</div></th>';
-  }}
+  }
   html += '</tr></thead><tbody>';
 
-  for (let i = 0; i < levels.length; i++) {{
+  for (let i = 0; i < levels.length; i++) {
     html += '<tr><td>' + levels[i] + '</td>';
-    for (let j = 0; j < genes.length; j++) {{
+    for (let j = 0; j < genes.length; j++) {
       const gene = genes[j];
       const inSet = presence[gene][i];
-      if (!inSet) {{
+      if (!inSet) {
         html += '<td style="background:#f5f5f5; border:1px solid #e0e0e0; height:' + CELL_H + 'px;"></td>';
-      }} else {{
+      } else {
         const vals = batch_vals[i][j];
         let strips = '<div style="display:flex; height:' + CELL_H + 'px; width:' + cellW + 'px;">';
-        for (const [bname, v] of vals) {{
+        for (const [bname, v] of vals) {
           const bg = v === null ? '#cccccc' : (v === 0 ? 'white' : redsColor(v));
           const tip = v === null ? bname + ': no cells' : bname + ': ' + v.toFixed(3);
           strips += '<div style="flex:1; background:' + bg + ';" title="' + tip + '"></div>';
-        }}
+        }
         strips += '</div>';
         html += '<td style="padding:0; border:1px solid #444;">' + strips + '</td>';
-      }}
-    }}
+      }
+    }
     html += '</tr>';
-  }}
+  }
   html += '</tbody></table>';
 
   html += '<div class="legend-row">';
@@ -631,18 +667,55 @@ function renderBatchHeatmap(d) {{
   html += '</div>';
 
   html += '<div class="batch-legend">';
-  for (const b of batches) {{
+  for (const b of batches) {
     const col = batchColors[b] || '#aaa';
     html += '<div class="batch-legend-item"><div class="batch-dot" style="background:' + col + ';"></div>' + b + '</div>';
-  }}
+  }
   html += '</div>';
 
   return html;
-}}
+}
+
+function renderMarkerComparison(icls) {
+  const d = markerData[icls];
+  if (!d) return;
+  document.getElementById('marker-placeholder').style.display = 'none';
+  const panel = document.getElementById('marker-content');
+  panel.style.display = 'block';
+  panel.innerHTML = renderBatchHeatmap(d);
+  SORTED_GENES = d.genes.slice();
+  panel.querySelectorAll('th.gene-th').forEach(el => {
+    el.addEventListener('click', () => setSelectedGene(el.dataset.gene));
+  });
+}
+
+function onIclsSelected(iclsId) {
+  if (iclsId == null) {
+    document.getElementById('marker-placeholder').style.display = 'block';
+    document.getElementById('marker-content').style.display = 'none';
+    clearEdgePanel();
+    return;
+  }
+  renderMarkerComparison(iclsId);
+  renderGeneChips();
+  if (SORTED_GENES.length) {
+    const ed = DATA.edge_data;
+    const first = SORTED_GENES.find(g => g in ed.gene_mean) || SORTED_GENES[0];
+    setSelectedGene(first);
+  }
+}
+
+/*__EDGE_JS__*/
 </script>
 </body>
 </html>
 """
 
+    html = (
+        template
+        .replace("/*__EDGE_CSS__*/", EDGE_PANEL_CSS)
+        .replace("/*__EDGE_JS__*/", EDGE_PANEL_JS)
+        .replace("/*__DATA__*/", json.dumps(data_blob, separators=(",", ":")))
+    )
     Path(save).write_text(html, encoding="utf-8")
     print(f"Batch interactive viewer saved → {save}")
