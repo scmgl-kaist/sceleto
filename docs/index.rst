@@ -9,6 +9,7 @@ Single-cell RNA-seq analysis toolkit — marker discovery, gene network, and cel
 
    getting_started
    markers_tutorial
+   demos
 
 .. toctree::
    :maxdepth: 2

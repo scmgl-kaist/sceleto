@@ -36,5 +36,9 @@ intersphinx_mapping = {
 # Theme
 html_theme = "furo"
 
+# Copy _static/demos/*.html (interactive viewer demos) verbatim into the
+# build output so RTD can serve them at /en/latest/demos/<file>.html
+html_extra_path = ["_static"]
+
 # Exclude patterns
 exclude_patterns = ["_build"]
