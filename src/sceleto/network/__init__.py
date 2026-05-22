@@ -24,6 +24,9 @@ from ._corr_db import (
 from ._corr_build import (
     build_corr_db,
 )
+from ._metacells import (
+    build_metacells,
+)
 
 __all__ = [
     # legacy
@@ -47,4 +50,6 @@ __all__ = [
     "list_cell_types",
     "load_corr_db",
     "build_corr_db",
+    # metacells
+    "build_metacells",
 ]
