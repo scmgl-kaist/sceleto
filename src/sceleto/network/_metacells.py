@@ -21,6 +21,8 @@ from __future__ import annotations
 
 import logging
 import random
+import re
+from pathlib import Path
 from typing import Optional
 
 import anndata as ad
@@ -30,6 +32,8 @@ import scanpy as sc
 import scipy.sparse as sp
 from anndata import AnnData
 from sklearn.metrics.pairwise import euclidean_distances
+
+_SAFE_CT_NAME = re.compile(r"^[A-Za-z0-9_-]+$")
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -301,3 +305,123 @@ def build_metacells(
         )
 
     return metacells
+
+
+def build_metacells_dir(
+    input_dir: str | Path,
+    output_dir: str | Path | None = None,
+    *,
+    sample_key: str,
+    pattern: str = "*.h5ad",
+    overwrite: bool = False,
+    counts: str = "raw",
+    min_cells_per_sample: int = 100,
+    n_neighbors: int = 15,
+    prop: float = 0.1,
+    normalize_target_sum: Optional[float] = 1e4,
+    log1p: bool = True,
+    seed: int = 42,
+    verbose: bool = True,
+) -> dict[str, AnnData]:
+    """Run :func:`build_metacells` on every ``*.h5ad`` in a directory.
+
+    Each file's stem becomes the cell type name (``EndoStromal.h5ad`` →
+    ``"EndoStromal"``).  Stems must match ``[A-Za-z0-9_-]+`` since they end up
+    in file paths downstream (see :func:`build_corr_db`).
+
+    Parameters
+    ----------
+    input_dir
+        Directory containing per-cell-type ``*.h5ad`` files.
+    output_dir
+        If provided, each metacell AnnData is written to
+        ``{output_dir}/{stem}.h5ad``.  On re-run, existing outputs are read
+        back instead of rebuilt (unless ``overwrite=True``), so the function
+        is idempotent and safe to resume.  If ``None``, results live in
+        memory only.
+    sample_key
+        Forwarded to :func:`build_metacells`.
+    pattern
+        Glob pattern used to discover input files. Default ``"*.h5ad"``.
+    overwrite
+        If True, rebuild even when an output file already exists.
+    counts, min_cells_per_sample, n_neighbors, prop, normalize_target_sum,
+    log1p, seed, verbose
+        Forwarded to :func:`build_metacells`. The same values apply to every
+        cell type — for heterogeneous parameters, call :func:`build_metacells`
+        in your own loop.
+
+    Returns
+    -------
+    dict[str, AnnData]
+        ``{cell_type: metacell_adata}`` ready to pass to :func:`build_corr_db`.
+    """
+    input_dir = Path(input_dir)
+    if not input_dir.is_dir():
+        raise FileNotFoundError(f"input_dir does not exist: {input_dir}")
+
+    files = sorted(input_dir.glob(pattern))
+    if not files:
+        raise FileNotFoundError(
+            f"No files matching {pattern!r} found in {input_dir}"
+        )
+
+    # Validate stems early — fail fast before any expensive work
+    for f in files:
+        if not _SAFE_CT_NAME.match(f.stem):
+            raise ValueError(
+                f"File stem {f.stem!r} contains characters outside "
+                f"[A-Za-z0-9_-]. Rename the file before running."
+            )
+
+    if output_dir is not None:
+        output_dir = Path(output_dir)
+        output_dir.mkdir(parents=True, exist_ok=True)
+
+    result: dict[str, AnnData] = {}
+
+    iterator = files
+    if verbose:
+        try:
+            from tqdm.auto import tqdm
+            iterator = tqdm(files, desc="cell types")
+        except ImportError:
+            pass
+
+    for f in iterator:
+        ct = f.stem
+
+        if output_dir is not None:
+            out_path = output_dir / f"{ct}.h5ad"
+            if out_path.exists() and not overwrite:
+                if verbose:
+                    print(f"[{ct}] cached → {out_path.name}, reading")
+                result[ct] = ad.read_h5ad(out_path)
+                continue
+
+        if verbose:
+            print(f"[{ct}] reading {f.name}")
+        adata = ad.read_h5ad(f)
+
+        mc = build_metacells(
+            adata,
+            sample_key=sample_key,
+            counts=counts,
+            min_cells_per_sample=min_cells_per_sample,
+            n_neighbors=n_neighbors,
+            prop=prop,
+            normalize_target_sum=normalize_target_sum,
+            log1p=log1p,
+            seed=seed,
+            verbose=verbose,
+        )
+
+        if output_dir is not None:
+            out_path = output_dir / f"{ct}.h5ad"
+            mc.write_h5ad(out_path)
+            if verbose:
+                print(f"[{ct}] wrote → {out_path.name} ({mc.n_obs} metacells)")
+
+        result[ct] = mc
+
+    return result

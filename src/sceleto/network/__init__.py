@@ -26,6 +26,7 @@ from ._corr_build import (
 )
 from ._metacells import (
     build_metacells,
+    build_metacells_dir,
 )
 
 __all__ = [
@@ -52,4 +53,5 @@ __all__ = [
     "build_corr_db",
     # metacells
     "build_metacells",
+    "build_metacells_dir",
 ]
