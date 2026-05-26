@@ -93,9 +93,18 @@ def build_corr_db(
     out_dir = Path(out_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
 
-    # Write shared gene names once
+    # Write shared gene names — verify against existing to avoid silent stale state
     gn_path = out_dir / f"{name}_gene_names_{version}.npy"
-    if overwrite or not gn_path.exists():
+    if gn_path.exists() and not overwrite:
+        existing = np.load(gn_path, allow_pickle=True)
+        if existing.shape != ref_genes.shape or not np.array_equal(existing, ref_genes):
+            raise ValueError(
+                f"{gn_path.name} on disk does not match new metacells' var_names "
+                f"(existing: {len(existing)} genes, new: {len(ref_genes)} genes). "
+                f"This would leave corr matrices misaligned with the gene index. "
+                f"Pass overwrite=True or clean the output directory before rebuilding."
+            )
+    else:
         np.save(gn_path, ref_genes)
         if verbose:
             print(f"[shared] gene_names → {gn_path.name} ({len(ref_genes)} genes)")
