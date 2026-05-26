@@ -10,10 +10,12 @@ Pipeline
 6. plot_network        — spring layout, optional condition coloring
 7. plot_clustermap     — seaborn hierarchical heatmap
 8. corr_pangea         — PANGEA pre-computed DB → one-shot network
+9. build_multi_goi_features — multi-GOI corr DB → gene × (GOI × CT) feature matrix
 """
 
 from __future__ import annotations
 
+from pathlib import Path
 from typing import Optional
 
 import matplotlib as mpl
@@ -467,3 +469,67 @@ def corr_pangea(
     feat = build_feature_matrix(top_genes, corr_df)
     G = build_gene_network(feat, k=k)
     return corr_df, feat, G
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# 9. build_multi_goi_features
+# ─────────────────────────────────────────────────────────────────────────────
+
+def build_multi_goi_features(
+    gois: list[str],
+    data_dir: str | Path,
+    *,
+    top_n: int = 10,
+    name: str = "pangea",
+    version: str = "v03",
+) -> pd.DataFrame:
+    """Build a multi-GOI feature matrix from a pre-computed corr DB.
+
+    For each GOI, loads its corr row from the DB and selects the top-N
+    positive corr genes per cell type.  The union becomes the candidate
+    gene pool.  The returned feature matrix has those genes as rows and
+    ``{GOI}_{CT}`` as columns (one column per (GOI, CT) pair) — the
+    canonical multi-GOI shape consumed by :func:`build_gene_network`.
+
+    Parameters
+    ----------
+    gois
+        Genes of interest. Must all exist in the corr DB's gene index.
+    data_dir
+        Directory holding the corr DB files.
+    top_n
+        Per (GOI, CT), number of top positive corr genes to contribute
+        to the candidate pool.
+    name, version
+        DB identifiers (defaults match PANGEA).
+
+    Returns
+    -------
+    pd.DataFrame
+        Index = candidate genes (sorted unique).
+        Columns = ``{goi}_{ct}`` for every (GOI, CT) pair.
+        Values = corr (NaN filled with 0.0).
+    """
+    from ._corr_db import load_corr_db
+
+    candidate: set[str] = set()
+    per_goi_corr: dict[str, pd.DataFrame] = {}
+    for goi in gois:
+        cdf = load_corr_db(goi, data_dir=data_dir, name=name, version=version)
+        per_goi_corr[goi] = cdf
+        t = select_top_genes(cdf, top_n=top_n, exclude_gene=goi)
+        candidate.update(t["gene"])
+    candidate_sorted = sorted(candidate)
+
+    parts = []
+    for goi in gois:
+        cdf = per_goi_corr[goi]
+        corr_cols = [c for c in cdf.columns if c.endswith("_corr")]
+        sub = (
+            cdf.set_index("gene")[corr_cols]
+            .reindex(candidate_sorted)
+            .fillna(0.0)
+        )
+        sub.columns = [f"{goi}_{c[:-5]}" for c in corr_cols]
+        parts.append(sub)
+    return pd.concat(parts, axis=1)

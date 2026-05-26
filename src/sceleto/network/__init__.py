@@ -16,6 +16,7 @@ from ._corr_network import (
     plot_network,
     plot_clustermap,
     corr_pangea,
+    build_multi_goi_features,
 )
 from ._corr_db import (
     list_cell_types,
@@ -47,6 +48,7 @@ __all__ = [
     "plot_network",
     "plot_clustermap",
     "corr_pangea",
+    "build_multi_goi_features",
     # corr DB
     "list_cell_types",
     "load_corr_db",
