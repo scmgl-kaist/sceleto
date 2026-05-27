@@ -5,7 +5,12 @@ from typing import Any, Callable, List, Optional, Union
 import pandas as pd
 
 from ._simple import MarkersSimple
-from ._gene_filter import GeneFilter
+from ._gene_filter import (
+    GeneFilter,
+    available_categories,
+    get_category,
+    get_categories,
+)
 from ._hierarchy import hierarchy as _hierarchy, HierarchyRun
 
 
@@ -117,11 +122,11 @@ def sweep_fc(adata, groupby: str, **kwargs):
 def __dir__():
     return [
         "simple", "classic", "marker", "hierarchy", "sweep_fc",
-        "GeneFilter",
+        "GeneFilter", "available_categories", "get_category", "get_categories",
     ]
 
 
 __all__ = [
     "simple", "classic", "marker", "hierarchy", "sweep_fc",
-    "GeneFilter",
+    "GeneFilter", "available_categories", "get_category", "get_categories",
 ]
