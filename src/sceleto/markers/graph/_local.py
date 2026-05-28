@@ -182,9 +182,9 @@ def local_score(df: pd.DataFrame, *, eps: float = 1e-9) -> np.ndarray:
         + 0.5 * df["coverage_neighbor"].to_numpy(dtype=float)
     )
 
-    # Specificity: in vs out (dominant term for local markers)
-    spec = np.log((cov_in + eps) / (cov_out + eps))
-    spec = np.maximum(0.0, spec)
+    # Specificity: coverage gap (in vs out). Difference-based; does not blow
+    # up at low coverage and is less restrictive than log-ratio.
+    spec = np.maximum(0.0, cov_in - cov_out)
 
     # Saturating reward for in-cluster expression fraction
     cov_term = np.sqrt(cov_in)
