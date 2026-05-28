@@ -14,7 +14,9 @@ Edge = Tuple[object, object]
 def compute_fc_delta(
     ctx,
     *,
+    edge_metric: Literal["fc", "delta"] = "fc",
     thres_fc: float = 3.0,
+    thres_delta: float = 0.5,
     eps: float = 1e-3,
     min_mean_any: float = 0.05,
     min_mean_high: float = 0.5,
@@ -23,6 +25,13 @@ def compute_fc_delta(
     min_nexpr_any: int = 0,
 ) -> pd.DataFrame:
     """Compute directional edge-gene FC/delta over PAGA undirected edges.
+
+    Parameters
+    ----------
+    edge_metric
+        Which metric to apply the jump threshold on:
+        - "fc"   : keep edges with fc >= thres_fc (default; ratio-based jump)
+        - "delta": keep edges with delta >= thres_delta (subtraction-based jump)
 
     Returns
     -------
@@ -34,6 +43,8 @@ def compute_fc_delta(
     """
     if ctx.undirected_edges is None:
         raise ValueError("ctx.undirected_edges is None. Build context with PAGA first.")
+    if edge_metric not in ("fc", "delta"):
+        raise ValueError(f"edge_metric must be 'fc' or 'delta', got {edge_metric!r}")
 
     rows = []
     genes = ctx.genes
@@ -73,7 +84,10 @@ def compute_fc_delta(
         fc = (m_high + eps) / (m_low + eps)
         delta = m_high - m_low
 
-        keep &= (fc >= thres_fc)
+        if edge_metric == "fc":
+            keep &= (fc >= thres_fc)
+        else:
+            keep &= (delta >= thres_delta)
 
         idx = np.where(keep)[0]
         if idx.size == 0:

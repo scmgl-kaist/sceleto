@@ -50,14 +50,22 @@ def _level1_seed_from_edges(
     groups: List[str],
     group_to_idx: Dict[str, int],
     genes: Optional[List[str]] = None,
+    edge_metric: Literal["fc", "delta"] = "fc",
     fc_cutoff: float = 3.0,
+    delta_cutoff: float = 0.5,
 ) -> Tuple[np.ndarray, List[str]]:
-    required = {"start", "end", "gene", "fc"}
+    required = {"start", "end", "gene", "fc", "delta"}
     missing = required - set(edge_gene_df.columns)
     if missing:
         raise ValueError(f"edge_gene_df missing columns: {sorted(missing)}")
+    if edge_metric not in ("fc", "delta"):
+        raise ValueError(f"edge_metric must be 'fc' or 'delta', got {edge_metric!r}")
 
-    df = edge_gene_df.loc[edge_gene_df["fc"] >= fc_cutoff, ["start", "end", "gene"]].copy()
+    if edge_metric == "fc":
+        mask = edge_gene_df["fc"] >= fc_cutoff
+    else:
+        mask = edge_gene_df["delta"] >= delta_cutoff
+    df = edge_gene_df.loc[mask, ["start", "end", "gene"]].copy()
     df["start"] = df["start"].astype(str)
     df["end"] = df["end"].astype(str)
     df["gene"] = df["gene"].astype(str)
@@ -168,7 +176,9 @@ def label_levels(
     ctx,
     edge_gene_df: pd.DataFrame,
     *,
+    edge_metric: Literal["fc", "delta"] = "fc",
     fc_cutoff: float = 3.0,
+    delta_cutoff: float = 0.5,
     genes: Optional[List[str]] = None,
     k: float = 2.0,
     sigma_method: SigmaMethod = "sd",
@@ -182,7 +192,9 @@ def label_levels(
     ctx
         MarkerContext from build_context().
     edge_gene_df
-        DataFrame from compute_fc_delta(ctx, ...), must include start/end/gene/fc.
+        DataFrame from compute_fc_delta(ctx, ...), must include start/end/gene/fc/delta.
+    edge_metric
+        Which column to threshold for Level-1 seeding ("fc" or "delta").
     genes
         If provided, restrict to these genes (still must exist in ctx.genes).
     """
@@ -191,7 +203,9 @@ def label_levels(
         groups=ctx.groups,
         group_to_idx=ctx.group_to_idx,
         genes=genes,
+        edge_metric=edge_metric,
         fc_cutoff=fc_cutoff,
+        delta_cutoff=delta_cutoff,
     )
 
     if len(genes_used) == 0:
@@ -225,7 +239,15 @@ def label_levels(
         level1=labels1,
         level2=labels2,
         level3=labels3,
-        params={"fc_cutoff": fc_cutoff, "k": k, "sigma_method": sigma_method, "min_gap": min_gap, "min_margin": min_margin},
+        params={
+            "edge_metric": edge_metric,
+            "fc_cutoff": fc_cutoff,
+            "delta_cutoff": delta_cutoff,
+            "k": k,
+            "sigma_method": sigma_method,
+            "min_gap": min_gap,
+            "min_margin": min_margin,
+        },
     )
 
 

@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Any, Callable, Dict, List, Optional, Tuple, Union
+from typing import Any, Callable, Dict, List, Literal, Optional, Tuple, Union
 
 import pandas as pd
 
@@ -39,15 +39,19 @@ class MarkerGraphRun(MarkersBase):
     # Batch key (None if not provided)
     batch_key: Optional[str] = None
 
-    # FC threshold sweep (None if thres_fc was not "auto")
+    # Which edge metric drove the jump filter ("fc" or "delta")
+    edge_metric: Literal["fc", "delta"] = "fc"
+
+    # Threshold sweep (None if the active threshold was not "auto")
     sweep_df: Optional[pd.DataFrame] = None
     suggested_thres_fc: Optional[float] = None
 
     def plot_fc_threshold(self, **kwargs):
-        """Plot FC threshold sweep results. Only available if thres_fc="auto" was used."""
+        """Plot threshold sweep results. Only available if the active threshold was "auto"."""
         if self.sweep_df is None:
-            raise ValueError("No sweep data. Re-run with thres_fc='auto'.")
+            raise ValueError("No sweep data. Re-run with thres_fc='auto' (or thres_delta='auto').")
         from ._threshold import plot_fc_threshold
+        kwargs.setdefault("edge_metric", self.edge_metric)
         return plot_fc_threshold(self.sweep_df, suggested=self.suggested_thres_fc, **kwargs)
 
     def plot_gene_edges_fc(self, gene: str, **kwargs):
@@ -116,7 +120,9 @@ def run_marker_graph(
     adata: Any,
     *,
     groupby: str,
+    edge_metric: Literal["fc", "delta"] = "fc",
     thres_fc: Union[float, str] = "auto",
+    thres_delta: Union[float, str] = 0.5,
     # Specific ranking params
     specific_A: float = 1.0,
     specific_B: float = 0.5,
@@ -138,6 +144,7 @@ def run_marker_graph(
     min_nexpr_any: int = 0,
     # Labeling defaults
     fc_cutoff: Optional[float] = None,
+    delta_cutoff: Optional[float] = None,
     label_k: float = 2.0,
     sigma_method: str = "sd",
     min_gap: float = 0.2,
@@ -190,22 +197,43 @@ def run_marker_graph(
             sc.pl.paga(adata, show=False)
         plt.close("all")
 
-    # --- Auto threshold ---
+    # --- Validate edge_metric ---
+    if edge_metric not in ("fc", "delta"):
+        raise ValueError(f"edge_metric must be 'fc' or 'delta', got {edge_metric!r}")
+
+    # --- Pick the active threshold based on edge_metric ---
+    active_thres: Union[float, str] = thres_fc if edge_metric == "fc" else thres_delta
+
     sweep_df = None
     suggested_thres_fc = None
 
-    if isinstance(thres_fc, str) and thres_fc == "auto":
+    if isinstance(active_thres, str) and active_thres == "auto":
         from ._threshold import sweep_fc_threshold, suggest_fc_threshold
-        sweep_df = sweep_fc_threshold(adata, groupby, use_raw=use_raw,
+        sweep_df = sweep_fc_threshold(adata, groupby, edge_metric=edge_metric, use_raw=use_raw,
                                        k=k, exclude=exclude,
                                        min_cells_per_group=min_cells_per_group,
                                        min_expr_cells_per_gene=min_expr_cells_per_gene)
         suggested_thres_fc = suggest_fc_threshold(sweep_df)
-        thres_fc = suggested_thres_fc
-        print(f"  Auto thres_fc: {thres_fc:.2f}")
+        active_thres = suggested_thres_fc
+        print(f"  Auto thres_{edge_metric}: {active_thres:.2f}")
 
+    # Write the resolved threshold back to the metric-specific variable.
+    # The inactive threshold is not used for filtering but must be a finite
+    # float so it can be passed through to compute_fc_delta.
+    if edge_metric == "fc":
+        thres_fc = float(active_thres)
+        if isinstance(thres_delta, str):
+            thres_delta = 0.5
+    else:
+        thres_delta = float(active_thres)
+        if isinstance(thres_fc, str):
+            thres_fc = 3.0
+
+    # Sync cutoffs for label_levels with the active threshold (unless caller overrode).
     if fc_cutoff is None:
-        fc_cutoff = thres_fc
+        fc_cutoff = float(thres_fc) if edge_metric == "fc" else 3.0
+    if delta_cutoff is None:
+        delta_cutoff = float(thres_delta) if edge_metric == "delta" else 0.5
 
     ctx = build_context(
         adata,
@@ -219,7 +247,9 @@ def run_marker_graph(
 
     edge_gene_df = compute_fc_delta(
         ctx,
-        thres_fc=thres_fc,
+        edge_metric=edge_metric,
+        thres_fc=float(thres_fc),
+        thres_delta=float(thres_delta),
         eps=eps,
         min_mean_any=min_mean_any,
         min_mean_high=min_mean_high,
@@ -241,7 +271,9 @@ def run_marker_graph(
     labels = label_levels(
         ctx,
         edge_gene_df,
+        edge_metric=edge_metric,
         fc_cutoff=float(fc_cutoff),
+        delta_cutoff=float(delta_cutoff),
         k=label_k,
         sigma_method=sigma_method,  # type: ignore[arg-type]
         min_gap=min_gap,
@@ -252,7 +284,10 @@ def run_marker_graph(
     G, pos = build_graph_and_pos_from_ctx(ctx, bidirectional=bidirectional)
     gene_edge_fc = build_gene_edge_fc_from_edge_gene_df(edge_fc, G=G)
 
-    sub = edge_gene_df[edge_gene_df["fc"] >= float(thres_fc)]
+    if edge_metric == "fc":
+        sub = edge_gene_df[edge_gene_df["fc"] >= float(thres_fc)]
+    else:
+        sub = edge_gene_df[edge_gene_df["delta"] >= float(thres_delta)]
     gene_to_edges: Dict[str, List[str]] = {}
     if len(sub) > 0:
         for g, sdf in sub.groupby("gene"):
@@ -314,6 +349,7 @@ def run_marker_graph(
         specific_ranking_df=specific_ranking_df,
         _marker_log=_marker_log,
         batch_key=batch_key,
+        edge_metric=edge_metric,
         sweep_df=sweep_df,
         suggested_thres_fc=suggested_thres_fc,
     )

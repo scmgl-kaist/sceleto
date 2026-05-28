@@ -6,7 +6,7 @@ and tracking how many edges lose all marker genes at each level.
 
 from __future__ import annotations
 
-from typing import Dict, List, Optional, Sequence, Tuple, Union
+from typing import Dict, List, Literal, Optional, Sequence, Tuple, Union
 
 import numpy as np
 import pandas as pd
@@ -17,11 +17,12 @@ def _run_sweep(
     total_edges: int,
     thresholds: np.ndarray,
     gt_in_data: Optional[List[str]] = None,
+    edge_metric: Literal["fc", "delta"] = "fc",
 ) -> pd.DataFrame:
     """Internal: sweep thresholds on a pre-computed edge-gene DataFrame."""
     rows = []
     for t in thresholds:
-        df_t = df[df["fc"] >= t]
+        df_t = df[df[edge_metric] >= t]
         n_pairs = len(df_t)
         n_genes = df_t["gene"].nunique()
         edges_covered = set(df_t["edge"])
@@ -61,13 +62,16 @@ def sweep_fc_threshold(
     adata,
     groupby: str,
     *,
+    edge_metric: Literal["fc", "delta"] = "fc",
     thresholds: Union[str, Sequence[float]] = "auto",
     ground_truth: Optional[Sequence[str]] = None,
     use_raw: bool = True,
     n_steps: int = 10,
     **ctx_kwargs,
 ) -> pd.DataFrame:
-    """Sweep FC thresholds and summarize edge/gene statistics.
+    """Sweep edge-metric thresholds and summarize edge/gene statistics.
+
+    Despite the legacy name, this also handles ``edge_metric="delta"``.
 
     Parameters
     ----------
@@ -75,6 +79,8 @@ def sweep_fc_threshold(
         AnnData object.
     groupby
         Column in adata.obs.
+    edge_metric
+        Which column to sweep: "fc" (ratio) or "delta" (subtraction).
     thresholds
         "auto" for two-phase adaptive sweep, or a list of explicit values.
     ground_truth
@@ -100,6 +106,9 @@ def sweep_fc_threshold(
     import scanpy as sc
     import matplotlib.pyplot as _plt
 
+    if edge_metric not in ("fc", "delta"):
+        raise ValueError(f"edge_metric must be 'fc' or 'delta', got {edge_metric!r}")
+
     # Ensure PAGA exists
     paga = getattr(adata, "uns", {}).get("paga", None)
     need_paga = paga is None or "connectivities" not in paga
@@ -119,8 +128,15 @@ def sweep_fc_threshold(
 
     ctx = build_context(adata, groupby=groupby, use_raw=use_raw, **ctx_kwargs)
 
-    # Compute all edge-gene pairs at FC >= 1.0 (baseline)
-    df = compute_fc_delta(ctx, thres_fc=1.0, eps=1e-3)
+    # Baseline: keep all edges that pass expression filters (no metric threshold).
+    # For FC mode use thres_fc=1.0; for delta mode use thres_delta=0.0.
+    if edge_metric == "fc":
+        df = compute_fc_delta(ctx, edge_metric="fc", thres_fc=1.0, eps=1e-3)
+        lo_default = 1.0
+    else:
+        df = compute_fc_delta(ctx, edge_metric="delta", thres_delta=0.0, eps=1e-3)
+        lo_default = 0.0
+
     df["edge"] = df["start"].astype(str) + "->" + df["end"].astype(str)
     total_edges = df["edge"].nunique()
 
@@ -131,11 +147,14 @@ def sweep_fc_threshold(
         gt_in_data = [g for g in ground_truth if g in all_genes]
 
     if isinstance(thresholds, str) and thresholds == "auto":
-        # Phase 1: coarse sweep from 1.0 to 95th percentile
-        fc_values = df["fc"].values
-        hi = max(np.percentile(fc_values, 95), 2.0)
-        coarse = np.linspace(1.0, hi, n_steps)
-        coarse_df = _run_sweep(df, total_edges, coarse, gt_in_data)
+        # Phase 1: coarse sweep from baseline to 95th percentile of the metric
+        metric_values = df[edge_metric].values
+        if edge_metric == "fc":
+            hi = max(np.percentile(metric_values, 95), 2.0)
+        else:
+            hi = max(np.percentile(metric_values, 95), 2.0 * lo_default + 1e-3)
+        coarse = np.linspace(lo_default, hi, n_steps)
+        coarse_df = _run_sweep(df, total_edges, coarse, gt_in_data, edge_metric=edge_metric)
 
         # Find where uncovered edges first appear
         first_uncovered_idx = coarse_df[coarse_df["n_edges_uncovered"] > 0].index
@@ -149,7 +168,7 @@ def sweep_fc_threshold(
         fine_hi = float(coarse_df.loc[min(idx + 1, len(coarse_df) - 1), "threshold"])
 
         fine = np.linspace(fine_lo, fine_hi, n_steps)
-        fine_df = _run_sweep(df, total_edges, fine, gt_in_data)
+        fine_df = _run_sweep(df, total_edges, fine, gt_in_data, edge_metric=edge_metric)
 
         # Merge: fine + coarse (beyond fine range)
         result = pd.concat([
@@ -160,7 +179,7 @@ def sweep_fc_threshold(
 
     # Explicit thresholds
     thresholds = np.asarray(thresholds, dtype=float)
-    return _run_sweep(df, total_edges, thresholds, gt_in_data)
+    return _run_sweep(df, total_edges, thresholds, gt_in_data, edge_metric=edge_metric)
 
 
 def suggest_fc_threshold(summary_df: pd.DataFrame) -> float:
@@ -186,6 +205,7 @@ def plot_fc_threshold(
     summary_df: pd.DataFrame,
     *,
     suggested: Optional[float] = None,
+    edge_metric: Literal["fc", "delta"] = "fc",
     figsize: Optional[Tuple[float, float]] = None,
     save: Optional[str] = None,
     show: bool = True,
@@ -228,21 +248,21 @@ def plot_fc_threshold(
 
         ax = axes[0, 0]
         ax.plot(thresholds, summary_df["n_genes"], "s-", color="darkorange", markersize=4)
-        ax.set_xlabel("FC threshold")
+        ax.set_xlabel(f"{edge_metric.upper()} threshold")
         ax.set_ylabel("Count")
         ax.set_title("Unique candidate genes")
         _add_suggested(ax)
 
         ax = axes[0, 1]
         ax.plot(thresholds, summary_df["n_edges_uncovered"], "x--", color="red", markersize=5)
-        ax.set_xlabel("FC threshold")
+        ax.set_xlabel(f"{edge_metric.upper()} threshold")
         ax.set_ylabel("# edges")
         ax.set_title("Uncovered edges")
         _add_suggested(ax)
 
         ax = axes[1, 0]
         ax.plot(thresholds, summary_df["gt_genes_surviving"], "D-", color="purple", markersize=4)
-        ax.set_xlabel("FC threshold")
+        ax.set_xlabel(f"{edge_metric.upper()} threshold")
         ax.set_ylabel("# genes")
         gt_total = summary_df["gt_genes_total"].iloc[0]
         ax.set_title(f"Ground truth survival ({gt_total} genes)")
@@ -252,7 +272,7 @@ def plot_fc_threshold(
         ax.plot(thresholds, summary_df["gt_edges_covered"], "^-", color="crimson", markersize=4)
         n_total = summary_df["n_edges_total"].iloc[0]
         ax.axhline(n_total, color="gray", ls=":", alpha=0.5, label=f"total={n_total}")
-        ax.set_xlabel("FC threshold")
+        ax.set_xlabel(f"{edge_metric.upper()} threshold")
         ax.set_ylabel("# edges")
         ax.set_title("Edges with ground truth markers")
         ax.legend(fontsize=8)
@@ -265,19 +285,19 @@ def plot_fc_threshold(
 
         ax = axes[0]
         ax.plot(thresholds, summary_df["n_genes"], "s-", color="darkorange", markersize=4)
-        ax.set_xlabel("FC threshold")
+        ax.set_xlabel(f"{edge_metric.upper()} threshold")
         ax.set_ylabel("Count")
         ax.set_title("Unique candidate genes")
         _add_suggested(ax)
 
         ax = axes[1]
         ax.plot(thresholds, summary_df["n_edges_uncovered"], "x--", color="red", markersize=5)
-        ax.set_xlabel("FC threshold")
+        ax.set_xlabel(f"{edge_metric.upper()} threshold")
         ax.set_ylabel("# edges")
         ax.set_title("Uncovered edges")
         _add_suggested(ax)
 
-    plt.suptitle("FC threshold sweep", fontsize=13, y=1.01)
+    plt.suptitle(f"{edge_metric.upper()} threshold sweep", fontsize=13, y=1.01)
     plt.tight_layout()
 
     if save:
