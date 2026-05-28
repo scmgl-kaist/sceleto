@@ -67,6 +67,14 @@ def sweep_fc_threshold(
     ground_truth: Optional[Sequence[str]] = None,
     use_raw: bool = True,
     n_steps: int = 10,
+    # Expression filters (forwarded to compute_fc_delta so the sweep sees the
+    # same edges as the main pipeline)
+    eps: float = 1e-3,
+    min_mean_any: float = 0.05,
+    min_mean_high: float = 0.5,
+    min_frac_high: float = 0.2,
+    max_mean_low: float = 0.2,
+    min_nexpr_any: int = 0,
     **ctx_kwargs,
 ) -> pd.DataFrame:
     """Sweep edge-metric thresholds and summarize edge/gene statistics.
@@ -130,11 +138,19 @@ def sweep_fc_threshold(
 
     # Baseline: keep all edges that pass expression filters (no metric threshold).
     # For FC mode use thres_fc=1.0; for delta mode use thres_delta=0.0.
+    expr_filter_kw = dict(
+        eps=eps,
+        min_mean_any=min_mean_any,
+        min_mean_high=min_mean_high,
+        min_frac_high=min_frac_high,
+        max_mean_low=max_mean_low,
+        min_nexpr_any=min_nexpr_any,
+    )
     if edge_metric == "fc":
-        df = compute_fc_delta(ctx, edge_metric="fc", thres_fc=1.0, eps=1e-3)
+        df = compute_fc_delta(ctx, edge_metric="fc", thres_fc=1.0, **expr_filter_kw)
         lo_default = 1.0
     else:
-        df = compute_fc_delta(ctx, edge_metric="delta", thres_delta=0.0, eps=1e-3)
+        df = compute_fc_delta(ctx, edge_metric="delta", thres_delta=0.0, **expr_filter_kw)
         lo_default = 0.0
 
     df["edge"] = df["start"].astype(str) + "->" + df["end"].astype(str)

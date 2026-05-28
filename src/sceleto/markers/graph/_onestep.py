@@ -209,10 +209,23 @@ def run_marker_graph(
 
     if isinstance(active_thres, str) and active_thres == "auto":
         from ._threshold import sweep_fc_threshold, suggest_fc_threshold
-        sweep_df = sweep_fc_threshold(adata, groupby, edge_metric=edge_metric, use_raw=use_raw,
-                                       k=k, exclude=exclude,
-                                       min_cells_per_group=min_cells_per_group,
-                                       min_expr_cells_per_gene=min_expr_cells_per_gene)
+        sweep_df = sweep_fc_threshold(
+            adata, groupby,
+            edge_metric=edge_metric,
+            use_raw=use_raw,
+            # Context kwargs
+            k=k, exclude=exclude,
+            min_cells_per_group=min_cells_per_group,
+            min_expr_cells_per_gene=min_expr_cells_per_gene,
+            # Expression filter kwargs — must match the main pipeline so the
+            # suggested threshold is computed on the same edge population.
+            eps=eps,
+            min_mean_any=min_mean_any,
+            min_mean_high=min_mean_high,
+            min_frac_high=min_frac_high,
+            max_mean_low=max_mean_low,
+            min_nexpr_any=min_nexpr_any,
+        )
         suggested_thres_fc = suggest_fc_threshold(sweep_df)
         active_thres = suggested_thres_fc
         print(f"  Auto thres_{edge_metric}: {active_thres:.2f}")
