@@ -7,3 +7,4 @@ dist/
 *.egg
 .ipynb_checkpoints/
 .DS_Store
+docs/_build/
