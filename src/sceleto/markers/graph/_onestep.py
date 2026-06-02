@@ -131,7 +131,7 @@ def run_marker_graph(
     specific_score_fn: Optional[Callable[[pd.DataFrame], object]] = None,
     # Context defaults
     use_raw: bool = True,
-    k: int = 5,
+    k: Union[int, Literal["all"]] = 5,
     exclude: Optional[List[str]] = None,
     min_cells_per_group: int = 0,
     min_expr_cells_per_gene: int = 0,
@@ -172,30 +172,42 @@ def run_marker_graph(
     import scanpy as sc
     import matplotlib.pyplot as plt
 
-    # --- Ensure PAGA exists and matches the current groupby ---
-    paga = getattr(adata, "uns", {}).get("paga", None)
-    need_paga = paga is None or "connectivities" not in paga
-
-    if not need_paga:
-        # Re-run if connectivities shape doesn't match the groupby categories
-        n_groups = adata.obs[groupby].nunique()
-        if paga["connectivities"].shape[0] != n_groups:
-            need_paga = True
-
-    if need_paga:
-        # PAGA requires neighbors graph
+    # --- Validate k and prepare graph inputs ---
+    if k == "all":
+        # Complete-graph mode: no PAGA. Requires UMAP for cluster centroid positions.
+        if "X_umap" not in getattr(adata, "obsm", {}):
+            raise ValueError(
+                "k='all' requires adata.obsm['X_umap'] for cluster positions. "
+                "Run sc.tl.umap(adata) first."
+            )
+    elif isinstance(k, int):
+        # PAGA-trim mode: neighbors graph must already exist (no auto-compute).
         if "neighbors" not in getattr(adata, "uns", {}):
-            sc.pp.neighbors(adata)
-        sc.tl.paga(adata, groups=groupby)
+            raise ValueError(
+                f"k={k} (PAGA trim) requires precomputed neighbors. "
+                "Run sc.pp.neighbors(adata) first, or set k='all' to skip PAGA."
+            )
 
-    # --- Ensure PAGA positions exist; populate if missing or stale ---
-    paga = adata.uns.get("paga", {})
-    if "pos" not in paga or need_paga:
-        try:
-            sc.pl.paga_compare(adata, show=False)
-        except Exception:
-            sc.pl.paga(adata, show=False)
-        plt.close("all")
+        # Ensure PAGA exists and matches the current groupby
+        paga = getattr(adata, "uns", {}).get("paga", None)
+        need_paga = paga is None or "connectivities" not in paga
+        if not need_paga:
+            n_groups = adata.obs[groupby].nunique()
+            if paga["connectivities"].shape[0] != n_groups:
+                need_paga = True
+        if need_paga:
+            sc.tl.paga(adata, groups=groupby)
+
+        # Ensure PAGA positions exist; populate if missing or stale
+        paga = adata.uns.get("paga", {})
+        if "pos" not in paga or need_paga:
+            try:
+                sc.pl.paga_compare(adata, show=False)
+            except Exception:
+                sc.pl.paga(adata, show=False)
+            plt.close("all")
+    else:
+        raise ValueError(f"k must be int or 'all', got {k!r}")
 
     # --- Validate edge_metric ---
     if edge_metric not in ("fc", "delta"):

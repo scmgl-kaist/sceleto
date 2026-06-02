@@ -117,22 +117,35 @@ def sweep_fc_threshold(
     if edge_metric not in ("fc", "delta"):
         raise ValueError(f"edge_metric must be 'fc' or 'delta', got {edge_metric!r}")
 
-    # Ensure PAGA exists
-    paga = getattr(adata, "uns", {}).get("paga", None)
-    need_paga = paga is None or "connectivities" not in paga
-    if not need_paga:
-        n_groups = adata.obs[groupby].nunique()
-        if paga["connectivities"].shape[0] != n_groups:
-            need_paga = True
-    if need_paga:
+    # Validate k and prepare graph inputs (mirrors run_marker_graph).
+    k = ctx_kwargs.get("k", 5)
+    if k == "all":
+        if "X_umap" not in getattr(adata, "obsm", {}):
+            raise ValueError(
+                "k='all' requires adata.obsm['X_umap'] for cluster positions. "
+                "Run sc.tl.umap(adata) first."
+            )
+    elif isinstance(k, int):
         if "neighbors" not in getattr(adata, "uns", {}):
-            sc.pp.neighbors(adata)
-        sc.tl.paga(adata, groups=groupby)
-        try:
-            sc.pl.paga_compare(adata, show=False)
-        except Exception:
-            sc.pl.paga(adata, show=False)
-        _plt.close("all")
+            raise ValueError(
+                f"k={k} (PAGA trim) requires precomputed neighbors. "
+                "Run sc.pp.neighbors(adata) first, or set k='all' to skip PAGA."
+            )
+        paga = getattr(adata, "uns", {}).get("paga", None)
+        need_paga = paga is None or "connectivities" not in paga
+        if not need_paga:
+            n_groups = adata.obs[groupby].nunique()
+            if paga["connectivities"].shape[0] != n_groups:
+                need_paga = True
+        if need_paga:
+            sc.tl.paga(adata, groups=groupby)
+            try:
+                sc.pl.paga_compare(adata, show=False)
+            except Exception:
+                sc.pl.paga(adata, show=False)
+            _plt.close("all")
+    else:
+        raise ValueError(f"k must be int or 'all', got {k!r}")
 
     ctx = build_context(adata, groupby=groupby, use_raw=use_raw, **ctx_kwargs)
 

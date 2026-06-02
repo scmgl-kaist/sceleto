@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, replace
-from typing import Dict, List, Optional, Tuple
+from typing import Dict, List, Literal, Optional, Tuple, Union
 
 import numpy as np
 import pandas as pd
@@ -108,9 +108,18 @@ def build_context(
     min_cells_per_group: int = 0,
     min_expr_cells_per_gene: int = 0,
     dtype=np.float32,
-    k: int = 5,
+    k: Union[int, Literal["all"]] = 5,
 ) -> MarkerContext:
-    """Build MarkerContext with expression stats + trimmed PAGA undirected edges."""
+    """Build MarkerContext with expression stats + cluster-pair graph.
+
+    Parameters
+    ----------
+    k
+        Cluster-pair graph topology:
+        - int: keep top-k PAGA edges per node (requires PAGA in adata.uns).
+        - "all": complete graph of all C(n, 2) pairs; cluster positions from
+          UMAP centroids (requires adata.obsm['X_umap']).
+    """
     # context with expression values
     ctx = _build_expression_context(
         adata,
@@ -123,11 +132,20 @@ def build_context(
     )
 
     # context with graph structures
-    undirected_edges, pos_df = _extract_paga_undirected_edges(
-        adata,
-        groups=ctx.groups,  # enforce exact group order
-        k=k,
-    )
+    if k == "all":
+        undirected_edges, pos_df = _build_all_pairs_graph(
+            adata,
+            groupby=groupby,
+            groups=ctx.groups,
+        )
+    elif isinstance(k, int):
+        undirected_edges, pos_df = _extract_paga_undirected_edges(
+            adata,
+            groups=ctx.groups,  # enforce exact group order
+            k=k,
+        )
+    else:
+        raise ValueError(f"k must be int or 'all', got {k!r}")
 
     return replace(ctx, undirected_edges=undirected_edges, pos_df=pos_df, adata=adata)
 
@@ -209,6 +227,56 @@ def _build_expression_context(
         undirected_edges=None,
         pos_df=None,
     )
+
+
+def _build_all_pairs_graph(
+    adata,
+    groupby: str,
+    *,
+    groups: List[str],
+) -> Tuple[List[Tuple[str, str]], pd.DataFrame]:
+    """Build complete cluster-pair graph (no PAGA) + UMAP centroid positions.
+
+    All C(n, 2) cluster pairs become edges. Cluster positions are computed as
+    the mean UMAP coordinate of cells in each cluster.
+
+    Raises
+    ------
+    ValueError
+        If adata.obsm['X_umap'] is missing (cannot compute centroids).
+    """
+    obsm = getattr(adata, "obsm", {})
+    if "X_umap" not in obsm:
+        raise ValueError(
+            "k='all' requires adata.obsm['X_umap'] for cluster positions. "
+            "Compute UMAP first (sc.tl.umap(adata))."
+        )
+
+    umap = np.asarray(obsm["X_umap"])
+    if umap.shape[1] < 2:
+        raise ValueError(
+            f"adata.obsm['X_umap'] must have >=2 dims, got shape {umap.shape}."
+        )
+
+    obs_groups = adata.obs[groupby].astype(str).to_numpy()
+
+    pos_rows = []
+    for g in groups:
+        mask = (obs_groups == g)
+        if not mask.any():
+            raise ValueError(f"Group '{g}' has no cells in adata.obs['{groupby}'].")
+        pos_rows.append(umap[mask].mean(axis=0))
+
+    pos_df = pd.DataFrame(np.vstack(pos_rows), index=groups)
+
+    # Complete graph: all unique unordered pairs.
+    undirected_edges = sorted(
+        tuple(sorted((groups[i], groups[j])))
+        for i in range(len(groups))
+        for j in range(i + 1, len(groups))
+    )
+
+    return undirected_edges, pos_df
 
 
 def _extract_paga_undirected_edges(
