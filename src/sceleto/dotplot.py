@@ -1,4 +1,4 @@
-"""Dotplot wrapper around ``scanpy.pl.dotplot`` with per-gene max-normalized color.
+"""Dotplot wrapper around ``scanpy.pl.dotplot`` with optional per-gene max-scaling.
 
 Usage
 -----
@@ -120,6 +120,7 @@ def dotplot(
     var_names: Union[Sequence[str], Mapping[str, Sequence]],
     groupby: str,
     *,
+    max_scale: bool = True,
     groups: Optional[Sequence[str]] = None,
     swap_axes: bool = False,
     use_raw: bool = True,
@@ -130,11 +131,16 @@ def dotplot(
     show: bool = True,
     **kwargs,
 ):
-    """Dotplot with per-gene max-normalized color, built on ``scanpy.pl.dotplot``.
+    """Dotplot built on ``scanpy.pl.dotplot``, with optional per-gene max-scaling.
 
     Size encodes fraction of cells expressing the gene (scanpy default).
-    Color encodes ``group_mean(gene) / max_group(group_mean(gene))`` per gene,
-    so ``vmax=1`` always corresponds to the highest-expressing group.
+    Color depends on ``max_scale``:
+
+    - ``max_scale=True`` (default): ``group_mean(gene) / max_group(group_mean(gene))``
+      per gene, so ``vmax=1`` always corresponds to the highest-expressing group.
+    - ``max_scale=False``: plain group mean of (log1p) expression with scanpy's
+      automatic color scaling — i.e. exactly what ``scanpy.pl.dotplot`` shows by
+      default.
 
     Follows scanpy's default axis orientation: genes on x-axis, groups on y-axis.
     Pass ``swap_axes=True`` to put genes on y-axis, groups on x-axis.
@@ -148,6 +154,11 @@ def dotplot(
         mapping.  Mappings render as bracket-grouped labels via scanpy.
     groupby
         Column in ``adata.obs`` to group cells by.
+    max_scale
+        If ``True`` (default), color = per-gene max-normalized group mean with
+        ``vmin=0, vmax=1``.  If ``False``, color = raw group mean (log1p) with
+        scanpy's automatic color scaling, reproducing ``scanpy.pl.dotplot``'s
+        default; ``vmin``/``vmax``/``standard_scale`` may then be passed through.
     groups
         Subset of groups to display.  ``None`` shows all.
     swap_axes
@@ -204,22 +215,34 @@ def dotplot(
         ad = adata_c[:, unique_genes].copy()
         _check_log1p_normalized(ad.X, "adata.X")
 
-    # ── per-gene max-normalized layer ─────────────────────────────────
-    _add_scaled_layer(ad, groupby, layer_name=_LAYER_NAME)
-
     # dict → bracket-grouped x-axis via scanpy; else flat list
     sc_var = var_group_dict if var_group_dict is not None else flat_genes
 
-    # Block kwargs that conflict with sceleto's normalization logic
+    # ── color encoding ────────────────────────────────────────────────
+    if max_scale:
+        # per-gene max-normalized layer; vmax=1 == highest-expressing group
+        _add_scaled_layer(ad, groupby, layer_name=_LAYER_NAME)
+        color_kwargs = {"layer": _LAYER_NAME, "vmin": 0, "vmax": 1}
+        colorbar_title = "Max-scaled\nmean"
+    else:
+        # scanpy default: group mean of (log1p) ad.X, auto color-scaled
+        color_kwargs = {}
+        colorbar_title = "Mean expression\nin group"
+
+    # Block kwargs that conflict with sceleto's plotting logic
     _BLOCKED = {
-        "layer", "standard_scale",         # normalization
-        "vmin", "vmax", "vcenter", "norm",  # color range
-        "var_group_positions", "var_group_labels",  # bracket structure
-        "dot_color_df", "dot_size_df",      # bypass sceleto logic entirely
+        "layer",                                      # expression source managed here
+        "var_group_positions", "var_group_labels",    # bracket structure
+        "dot_color_df", "dot_size_df",                # bypass sceleto logic entirely
     }
+    if max_scale:
+        # color range + scaling are fixed by the max-normalization
+        _BLOCKED |= {"standard_scale", "vmin", "vmax", "vcenter", "norm"}
     bad = _BLOCKED & set(kwargs)
     if bad:
-        raise ValueError(f"sceleto.dotplot: {sorted(bad)} cannot be set.")
+        raise ValueError(
+            f"sceleto.dotplot: {sorted(bad)} cannot be set (max_scale={max_scale})."
+        )
 
     # Split kwargs: .style() params must not go to the constructor
     _STYLE_KEYS = {
@@ -240,10 +263,8 @@ def dotplot(
         sc_var,
         groupby,
         use_raw=False,
-        layer=_LAYER_NAME,
-        vmin=0,
-        vmax=1,
         figsize=figsize,
+        **color_kwargs,
         **dp_kwargs,
     )
     if dendrogram:
@@ -258,7 +279,7 @@ def dotplot(
     style_kwargs.setdefault("x_padding", 0.6)
     style_kwargs.setdefault("y_padding", 0.6)
     dp.style(cmap=cmap, dot_edge_color="none", dot_edge_lw=0, **style_kwargs)
-    dp.legend(colorbar_title="Max-scaled\nmean")
+    dp.legend(colorbar_title=colorbar_title)
     if swap_axes:
         dp.swap_axes()
 
