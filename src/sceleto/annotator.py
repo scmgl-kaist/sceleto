@@ -5,7 +5,7 @@ Usage
 >>> import sceleto as sl
 >>> ann = sl.Annotator(adata, 'celltype')
 >>> ann.annotate('leiden', '0', 'T cell')
->>> ann.annotate('leiden_R', '0,1', 'CD4 T')
+>>> ann.annotate('leiden', '1', 'B cell')
 >>> ann.annotate('leiden', '4', 'Monocyte', unknown_only=True)
 """
 
