@@ -2,8 +2,8 @@
 
 Usage
 -----
->>> import sceleto as sl
->>> ann = sl.Annotator(adata, 'celltype')
+>>> import sceleto as scl
+>>> ann = scl.Annotator(adata, 'celltype')
 >>> ann.annotate('leiden', '0', 'T cell')
 >>> ann.annotate('leiden', '1', 'B cell')
 >>> ann.annotate('leiden', '4', 'Monocyte', unknown_only=True)

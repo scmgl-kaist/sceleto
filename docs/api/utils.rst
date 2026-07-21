@@ -13,10 +13,10 @@ Build cell-type annotations incrementally by mapping cluster IDs to labels.
 
 .. code-block:: python
 
-   import sceleto as sl
+   import sceleto as scl
 
    # start a new 'celltype' column (all cells begin as 'unknown')
-   ann = sl.Annotator(adata, 'celltype')
+   ann = scl.Annotator(adata, 'celltype')
 
    # one call = one cluster -> one label (exact string match)
    ann.annotate('leiden', '0', 'T cell')
