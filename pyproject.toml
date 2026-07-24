@@ -33,3 +33,4 @@ include = ["sceleto*"]
 
 [tool.setuptools.package-data]
 "sceleto.data" = ["*.json"]
+"sceleto.interaction.db" = ["*.parquet"]

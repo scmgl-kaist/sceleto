@@ -8,3 +8,7 @@ dist/
 .ipynb_checkpoints/
 .DS_Store
 docs/_build/
+
+# Local test data (pbmc3k etc.) — repo root only, NOT the bundled
+# package DB at src/sceleto/interaction/data/
+/data/
