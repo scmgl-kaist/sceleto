@@ -105,7 +105,7 @@ def category_dotplot(
     group_colors=None,
     row_split: bool = True,
     row_split_gap: float = 1.5,
-    col_split_gap: float = 0.5,
+    col_split_gap: float = 0.3,
     sidebar: bool = True,
     show_group_label: bool = True,
     max_s: float = 130.0,
@@ -312,7 +312,7 @@ def category_dotplot(
     # ── pretty defaults (all overridable) ─────────────────────────────
     # tighter columns by default; legend wide enough to avoid clipping.
     if figsize is None:
-        figsize = (max(5.0, 0.17 * len(genes) + 2.8),
+        figsize = (max(4.5, 0.14 * len(genes) + 2.8),
                    max(3.0, 0.20 * len(y_order) + 1.5))
     if legend_width is None:
         longest = max([len(str(x)) for x in (cat_levels + [category])] or [8])
