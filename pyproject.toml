@@ -22,7 +22,8 @@ dependencies = [
 
 [project.optional-dependencies]
 pangeapy = ["pangeapy"]
-all = ["pangeapy", "adjustText"]
+dotplot = ["PyComplexHeatmap>=1.7"]
+all = ["pangeapy", "adjustText", "PyComplexHeatmap>=1.7"]
 
 [tool.setuptools]
 package-dir = {"" = "src"}
