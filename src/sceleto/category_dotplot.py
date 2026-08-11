@@ -192,7 +192,12 @@ def category_dotplot(
     show
         Call ``plt.show()``.
     **kwargs
-        Forwarded to ``PyComplexHeatmap.DotClustermapPlotter``.
+        Forwarded to ``PyComplexHeatmap.DotClustermapPlotter`` (then to
+        ``matplotlib.scatter``).  Dots get a thin outline by default
+        (``edgecolors="black"``, ``linewidth=0.5``); override e.g. with
+        ``edgecolors="none"`` / ``linewidth=0`` to remove it.  x tick labels
+        rotate 90° by default (``xticklabels_kws={"labelrotation": 90}``);
+        note PyComplexHeatmap honours ``labelrotation``, not ``rotation``.
 
     Returns
     -------
@@ -317,12 +322,22 @@ def category_dotplot(
     if legend_width is None:
         longest = max([len(str(x)) for x in (cat_levels + [category])] or [8])
         legend_width = max(30.0, longest * 2.6)
-    cmap_lk = {"extend": "neither"}          # rectangular colorbar
+    # rectangular colorbar; ticks=None → matplotlib AutoLocator picks round
+    # numbers (the scanpy.pl.dotplot look) instead of raw vmin/center/vmax.
+    cmap_lk = {"extend": "neither", "ticks": None}
     cmap_lk.update(cmap_legend_kws or {})
     color_lk = {"frameon": False}            # no legend-box outline
     color_lk.update(color_legend_kws or {})
     dot_lk = {"frameon": False}
     dot_lk.update(dot_legend_kws or {})
+
+    # dot outline defaults (overridable via kwargs). Drop a default if the user
+    # passes the singular alias so matplotlib doesn't error on both being set.
+    dot_style = {"edgecolors": "black", "linewidths": 0.5}
+    if any(k in kwargs for k in ("edgecolor", "ec", "edgecolors")):
+        dot_style.pop("edgecolors", None)
+    if any(k in kwargs for k in ("linewidth", "lw", "linewidths")):
+        dot_style.pop("linewidths", None)
 
     fig = plt.figure(figsize=figsize)
 
@@ -360,7 +375,8 @@ def category_dotplot(
         show_rownames=show_rownames, show_colnames=True,
         grid=grid, legend_width=legend_width,
         cmap_legend_kws=cmap_lk, color_legend_kws=color_lk, dot_legend_kws=dot_lk,
-        xticklabels_kws={"rotation": 90}, verbose=0,
+        xticklabels_kws={"labelrotation": 90}, verbose=0,
+        **dot_style,
     )
     if split_series is not None:
         plot_kwargs.update(row_split=split_series, row_split_order=row_levels,
