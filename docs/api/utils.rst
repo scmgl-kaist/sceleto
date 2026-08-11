@@ -6,6 +6,15 @@ Dotplot
 
 .. autofunction:: sceleto.dotplot
 
+Category Dotplot
+----------------
+
+Grouped dot-heatmap with a per-``category`` colormap (cross-condition / cross-species
+marker panels). See the :doc:`category_dotplot tutorial </category_dotplot_tutorial>`
+for the aesthetic options. Requires the optional ``sceleto[dotplot]`` extra.
+
+.. autofunction:: sceleto.category_dotplot
+
 Annotator
 ---------
 
