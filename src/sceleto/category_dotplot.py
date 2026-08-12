@@ -109,6 +109,7 @@ def category_dotplot(
     sidebar: bool = True,
     show_group_label: bool = True,
     max_s: float = 130.0,
+    min_s: float = 0.0,
     dot_size: str = "pct",
     size_range=None,
     grid: bool = False,
@@ -175,6 +176,11 @@ def category_dotplot(
         the far left (default ``True``).
     max_s
         Largest dot area.
+    min_s
+        Smallest dot area (default ``0`` → a value at the low end of the size
+        scale draws no dot, like ``scanpy.pl.dotplot``).  PyComplexHeatmap would
+        otherwise floor it at ``max_s * 0.1``; raise ``min_s`` to keep low values
+        faintly visible.
     dot_size
         ``"pct"`` (fraction expressing, default) or ``"mean"`` (mean expression).
     size_range
@@ -382,7 +388,7 @@ def category_dotplot(
 
     plot_kwargs = dict(
         data=df, x="gene", y="y", hue=category, value="color",
-        s=size_col, c="color", cmap=cat_cmaps, max_s=max_s,
+        s=size_col, c="color", cmap=cat_cmaps, max_s=max_s, min_s=min_s,
         left_annotation=left_annotation,
         x_order=genes, y_order=y_order,
         row_cluster=False, col_cluster=False,
