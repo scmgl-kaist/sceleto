@@ -110,6 +110,7 @@ def category_dotplot(
     show_group_label: bool = True,
     max_s: float = 130.0,
     dot_size: str = "pct",
+    size_range=None,
     grid: bool = False,
     legend_width: Optional[float] = None,
     cmap_legend_kws: Optional[dict] = None,
@@ -174,6 +175,14 @@ def category_dotplot(
         Largest dot area.
     dot_size
         ``"pct"`` (fraction expressing, default) or ``"mean"`` (mean expression).
+    size_range
+        ``(low, high)`` fixing the dot-size scale.  By default (``None``) the low
+        end is anchored at 0 and, for ``dot_size="pct"``, the high end is the
+        observed maximum rounded up to the next 10 % (the ``scanpy.pl.dotplot``
+        convention) — so the largest dot = the top value in *this* plot and the
+        size legend reads in round numbers.  Pass ``size_range=(0, 100)`` to make
+        dot area an absolute fraction (comparable across plots); values are
+        clipped to the range.
     grid
         Draw grid lines (default ``False``).
     legend_width
@@ -391,7 +400,45 @@ def category_dotplot(
         plot_kwargs["vmax"] = color_vmax
     plot_kwargs.update(kwargs)
 
-    cm = pch.DotClustermapPlotter(**plot_kwargs)
+    # Dot-size scale.  PyComplexHeatmap normalizes size to the data's own
+    # min–max (so the smallest dot floats above 0).  Instead we anchor the low
+    # end at 0 and, for pct, round the high end up to the next 10 % — the
+    # scanpy.pl.dotplot convention — so the legend reads nicely and the largest
+    # dot = the top value in this plot.  size_range=(low, high) overrides this
+    # with a fixed reference (e.g. 0–100 for absolute, cross-plot fractions).
+    if size_range is not None:
+        if len(size_range) != 2 or size_range[0] >= size_range[1]:
+            raise ValueError("size_range must be (low, high) with low < high.")
+        srange = (float(size_range[0]), float(size_range[1]))
+    else:
+        smax_data = float(df[size_col].max())
+        if smax_data <= 0:
+            srange = None
+        elif dot_size == "pct":
+            srange = (0.0, min(100.0, float(np.ceil(smax_data / 10.0) * 10.0)))
+        else:
+            srange = (0.0, smax_data)
+
+    if srange is None:
+        cm = pch.DotClustermapPlotter(**plot_kwargs)
+    else:
+        lo, hi = srange
+
+        # override smin/smax with the fixed reference so the dot area maps to an
+        # absolute value and the size legend spans lo..hi.
+        class _FixedSizeDotPlotter(pch.DotClustermapPlotter):
+            def format_data(self, data, mask=None, z_score=None, standard_scale=None):
+                data2d = super().format_data(
+                    data, mask=mask, z_score=z_score, standard_scale=standard_scale)
+                if isinstance(self.s, str):
+                    raw = data.pivot_table(
+                        index=self.y, columns=self.x, values=self.s,
+                        aggfunc=self.aggfunc).fillna(self.s_na)
+                    self.smin, self.smax = lo, hi
+                    self.kwargs["s"] = raw.clip(lo, hi).map(lambda v: (v - lo) / (hi - lo))
+                return data2d
+
+        cm = _FixedSizeDotPlotter(**plot_kwargs)
 
     if save:
         fig.savefig(save, bbox_inches="tight", format="pdf", dpi=300)

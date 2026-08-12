@@ -74,6 +74,36 @@ def test_max_scale_runs():
     plt.close("all")
 
 
+def test_default_size_scale_scanpy_style():
+    # default: low anchored at 0, high = observed max rounded up to next 10%
+    a = _toy_adata()
+    fig, cm = scl.category_dotplot(
+        a, ["G1", "G2", "G3"], groupby="row", category="cat", show=False
+    )
+    assert float(cm.smin) == 0.0
+    assert float(cm.smax) % 10 == 0.0
+    assert 0 < float(cm.smax) <= 100
+    plt.close("all")
+
+
+def test_size_range_pins_scale():
+    a = _toy_adata()
+    fig, cm = scl.category_dotplot(
+        a, ["G1", "G2", "G3"], groupby="row", category="cat",
+        size_range=(0, 100), show=False,
+    )
+    assert float(cm.smin) == 0.0
+    assert float(cm.smax) == 100.0
+    plt.close("all")
+
+
+def test_size_range_bad_raises():
+    a = _toy_adata()
+    with pytest.raises(ValueError):
+        scl.category_dotplot(a, ["G1"], groupby="row", category="cat",
+                             size_range=(100, 0), show=False)
+
+
 def test_max_scale_and_standard_scale_conflict():
     a = _toy_adata()
     with pytest.raises(ValueError):
