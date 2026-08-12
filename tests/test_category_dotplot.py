@@ -104,6 +104,31 @@ def test_size_range_bad_raises():
                              size_range=(100, 0), show=False)
 
 
+def test_max_scale_is_per_category():
+    # max_scale should normalize within each category: every (gene, category)
+    # reaches color 1.0 at its own within-category max.
+    import PyComplexHeatmap as pch
+
+    a = _toy_adata()
+    captured = {}
+
+    class _Capture:
+        def __init__(self, **kw):
+            captured["df"] = kw["data"].copy()
+
+    real = pch.DotClustermapPlotter
+    pch.DotClustermapPlotter = _Capture
+    try:
+        scl.category_dotplot(a, ["G1", "G2"], groupby="row", category="cat",
+                             max_scale=True, show=False)
+    finally:
+        pch.DotClustermapPlotter = real
+
+    mx = captured["df"].groupby(["gene", "cat"])["color"].max()
+    assert ((mx - 1.0).abs() < 1e-9).all()
+    plt.close("all")
+
+
 def test_max_scale_and_standard_scale_conflict():
     a = _toy_adata()
     with pytest.raises(ValueError):

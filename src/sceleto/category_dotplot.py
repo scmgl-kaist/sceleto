@@ -148,7 +148,9 @@ def category_dotplot(
         (empty combos are blank rows); if ``True`` hide empty combos.
     max_scale
         If ``True``, color = per-gene max-normalized group mean → 0..1 (no
-        negatives), like ``sceleto.dotplot(max_scale=True)``.  Default ``False``.
+        negatives), like ``sceleto.dotplot(max_scale=True)``.  The max is taken
+        *within each category* (each category has its own colormap, so its dots
+        span its own 0..1), not across categories.  Default ``False``.
     standard_scale
         Color scaling of mean expression: ``"var"`` (z per gene) / ``"group"``
         (z per row) / ``None`` or ``False`` (default → **raw log1p mean**).
@@ -283,8 +285,11 @@ def category_dotplot(
     if max_scale and standard_scale:
         raise ValueError("set only one of max_scale / standard_scale.")
     if max_scale:
-        # per-gene max-normalized group mean → 0..1, no negatives (like scl.dotplot)
-        gmax = df.groupby("gene")["mean"].transform("max").to_numpy()
+        # per-gene max-normalized group mean → 0..1, no negatives (like scl.dotplot).
+        # Normalize *within each category* (not globally): each category has its
+        # own colormap, so its dots should span 0..1 against that category's own
+        # max for the gene.
+        gmax = df.groupby(["gene", category])["mean"].transform("max").to_numpy()
         df["color"] = np.where(gmax > 0, df["mean"].to_numpy() / gmax, 0.0)
         color_vmin = 0.0 if vmin is None else vmin
         color_vmax = 1.0 if vmax is None else vmax
