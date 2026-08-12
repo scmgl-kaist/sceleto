@@ -443,6 +443,30 @@ def category_dotplot(
                     self.kwargs["s"] = raw.clip(lo, hi).map(lambda v: (v - lo) / (hi - lo))
                 return data2d
 
+            def collect_legends(self):
+                super().collect_legends()
+                # PyComplexHeatmap labels the dot-size legend with str(round(v, 2))
+                # → "100.0".  Show pct as whole numbers (like scanpy.pl.dotplot);
+                # for other size metrics just drop trailing zeros.
+                key = f"{self.s} (dot)"
+                entry = getattr(self, "legend_dict", {}).get(key)
+                if entry is not None:
+                    markers1, mid, ms = entry[0]
+
+                    def _fmt(k):
+                        try:
+                            v = float(k)
+                        except (TypeError, ValueError):
+                            return k
+                        return f"{v:.0f}" if dot_size == "pct" else f"{v:g}"
+
+                    self.legend_dict[key] = ((
+                        {_fmt(k): v for k, v in markers1.items()},
+                        mid,
+                        {_fmt(k): v for k, v in ms.items()},
+                    ),) + tuple(entry[1:])
+                    self.get_legend_list()
+
         cm = _FixedSizeDotPlotter(**plot_kwargs)
 
     if save:
