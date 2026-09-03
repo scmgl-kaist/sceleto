@@ -150,6 +150,23 @@ class HierarchyRun:
         plt.close(fig)
         return fig
 
+    def path_markers_dotplot(self, icls: str, **kwargs):
+        """Hierarchy tree + per-level top-N marker dotplot across all leaves.
+
+        A richer companion to :meth:`compare_markers`: instead of a binary
+        presence heatmap of the de-duplicated marker union, this draws a
+        hierarchy dendrogram (level 0 -> level 1 -> level 2 -> path) on top and,
+        below it, a dotplot whose rows are the reference path's per-level top-N
+        markers (duplicates kept, row label colored by origin level) and whose
+        columns are every icls leaf. Dot color = normalized mean expression via
+        the level's colormap; dot size = fraction of expressing cells.
+
+        See :func:`sceleto.markers._path_dotplot.path_markers_dotplot` for the
+        full parameter list. Returns ``(fig, ax)``.
+        """
+        from ._path_dotplot import path_markers_dotplot
+        return path_markers_dotplot(self, str(icls), **kwargs)
+
     def compare_markers_batch(
         self,
         icls: str,
