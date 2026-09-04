@@ -296,3 +296,223 @@ def path_markers_dotplot(
         fig.savefig(save, bbox_inches="tight", format="pdf", dpi=300)
     plt.close(fig)   # suppress inline auto-show; caller displays via `fig`
     return fig, ax
+
+
+def hierarchy_markers_dotplot(
+    hr,
+    *,
+    n_markers: Optional[int] = None,
+    order: str = "dfs",
+    color_norm: str = "global",
+    color_floor: float = 0.30,
+    max_dot: float = 170.0,
+    min_frac: float = 0.0,
+    show_tree: bool = True,
+    row_h: float = 0.60,
+    band_gap: float = 0.55,
+    figsize=None,
+    save: Optional[str] = None,
+):
+    """FULL hierarchy marker map: EVERY node's top-N markers (rows) vs all leaves.
+
+    Raw generalization of :func:`path_markers_dotplot` from one path to the whole
+    hierarchy. Rows = each node's top-N markers (level0 red / level1 green /
+    level2 black); columns = every icls leaf, tree on top. No dedup, no anchor.
+
+    ``order`` controls the row order:
+
+    - ``"dfs"`` (default): depth-first pre-order — each level0 cluster immediately
+      followed by its level1 children and their level2 children, so rows are
+      grouped by lineage/branch (levels interleave; gap separates top branches).
+    - ``"bfs"``: breadth-first — all level0 clusters, then all level1, then all
+      level2. Three level-bands (each band ~ a block/diagonal).
+
+    NOTE: this stacks all nodes' markers, so the figure is very tall (roughly
+    ``(n_level0 + n_level1 + n_level2) * n_markers`` rows). Best saved as a large
+    PDF / used as an atlas overview; keep ``n_markers`` small.
+    """
+    import matplotlib.pyplot as plt
+    from matplotlib.patches import Circle, Rectangle
+
+    def _cmap(name):
+        return plt.get_cmap(name)
+
+    def _solid(name, v=0.85):
+        return _cmap(name)(v)
+
+    levels = hr.levels
+    g0, g1, g2 = levels
+    df = hr.icls_path_df.set_index("icls")
+    full = hr.full_gene_lists
+    if n_markers is None:
+        n_markers = hr.params["n_top_markers"]
+
+    def clu_at(icls, lvl):
+        return df.loc[icls, lvl].split("@", 1)[1]
+
+    cols = sorted(df.index, key=lambda c: (int(clu_at(c, g0)), int(clu_at(c, g1)),
+                                           int(clu_at(c, g2))))
+
+    # rows: each node's top-N markers, ordered BFS (level bands) or DFS (branches)
+    rows, gaps = [], []                         # (gene, level_index) ; gap_before flag
+
+    def _emit(level_i, cluster_id, gap):
+        first = True
+        for gene in full[f"{levels[level_i]}@{cluster_id}"][:n_markers]:
+            rows.append((gene, level_i))
+            gaps.append(gap if first else False)
+            first = False
+
+    if order == "dfs":
+        prev = (None, None, None)
+        for icls in cols:
+            a, b, c = clu_at(icls, g0), clu_at(icls, g1), clu_at(icls, g2)
+            if a != prev[0]:
+                _emit(0, a, gap=len(rows) > 0)          # gap before each new branch
+            if (a, b) != prev[:2]:
+                _emit(1, b, gap=False)
+            if (a, b, c) != prev:
+                _emit(2, c, gap=False)
+            prev = (a, b, c)
+    elif order == "bfs":
+        for li, g in enumerate(levels):
+            seen_clu = []
+            for icls in cols:
+                k = clu_at(icls, g)
+                if k not in seen_clu:
+                    seen_clu.append(k)
+            for ci, k in enumerate(seen_clu):
+                _emit(li, k, gap=(li > 0 and ci == 0))  # gap before each new band
+    else:
+        raise ValueError("order must be 'bfs' or 'dfs'.")
+
+    ctx2 = hr.contexts[g2]
+    gidx = {gg: i for i, gg in enumerate(ctx2.genes)}
+    leaf_row = {icls: ctx2.group_to_idx.get(clu_at(icls, g2)) for icls in cols}
+
+    def expr(icls, gene):
+        r, c = leaf_row[icls], gidx.get(gene)
+        if r is None or c is None:
+            return 0.0, 0.0
+        return float(ctx2.mean_norm[r, c]), float(ctx2.frac_expr[r, c])
+
+    # ----- geometry (gaps at band/branch boundaries per `gaps`) -----
+    ncol = len(cols)
+    xs = list(range(ncol))
+    gene_y, y = [], 0.0
+    for i, (gene, li) in enumerate(rows):
+        if i > 0 and gaps[i]:
+            y -= band_gap
+        gene_y.append(y)
+        y -= row_h
+    y_bot = gene_y[-1] if gene_y else 0.0
+
+    dy = 1.25
+    Y_PATH = 0.75
+    Y_L2 = Y_PATH + dy
+    Y_L1 = Y_L2 + dy
+    Y_L0 = Y_L1 + dy
+    Y_ROOT = Y_L0 + 0.75
+    y_top = (Y_ROOT + 0.3) if show_tree else (Y_PATH + 0.4)
+
+    if figsize is None:
+        yspan = y_top - y_bot
+        figsize = (2.8 + ncol * 0.30, 2.0 + yspan * 0.42)
+    fig, ax = plt.subplots(figsize=figsize)
+
+    lc, lw = "#9a9a9a", 1.1
+
+    def bracket(px, py, children_x, child_y):
+        bar_y = py - 0.46
+        ax.plot([px, px], [py - 0.18, bar_y], color=lc, lw=lw, zorder=1)
+        if len(children_x) > 1:
+            ax.plot([min(children_x), max(children_x)], [bar_y, bar_y], color=lc, lw=lw, zorder=1)
+        for cx in children_x:
+            ax.plot([cx, cx], [bar_y, child_y + 0.18], color=lc, lw=lw, zorder=1)
+
+    if show_tree:
+        c_g0 = [clu_at(c, g0) for c in cols]
+        c_g1 = [clu_at(c, g1) for c in cols]
+        c_g2 = [clu_at(c, g2) for c in cols]
+        l0g = _consec_groups(c_g0)
+        l1g = _consec_groups(list(zip(c_g0, c_g1)))
+        l0x = {k: float(np.mean(m)) for k, m in l0g}
+        l1x = [(k, float(np.mean(m)), m) for k, m in l1g]
+        for i in range(ncol):
+            ax.text(i, Y_L2, c_g2[i], ha="center", va="center", fontsize=8, zorder=4)
+            ax.plot([i, i], [Y_L2 - 0.18, Y_PATH + 0.34], color=lc, lw=lw, zorder=1)
+        for (k0, k1), px, members in l1x:
+            ax.text(px, Y_L1, k1, ha="center", va="center", fontsize=8, zorder=4)
+            bracket(px, Y_L1, [float(m) for m in members], Y_L2)
+        for k0, m0 in l0g:
+            px = l0x[k0]
+            ax.text(px, Y_L0, k0, ha="center", va="center", fontsize=8, zorder=4)
+            child_x = [x for (kk0, kk1), x, mm in l1x if kk0 == k0]
+            bracket(px, Y_L0, child_x, Y_L1)
+        rootx = sorted(l0x.values())
+        if len(rootx) > 1:
+            ax.plot([min(rootx), max(rootx)], [Y_ROOT, Y_ROOT], color=lc, lw=lw, zorder=1)
+        for x in rootx:
+            ax.plot([x, x], [Y_ROOT, Y_L0 + 0.18], color=lc, lw=lw, zorder=1)
+        for yy, name, cmapname in [(Y_L0, g0, LEVEL_CMAPS[0]), (Y_L1, g1, LEVEL_CMAPS[1]),
+                                   (Y_L2, g2, LEVEL_CMAPS[2])]:
+            ax.text(-1.0, yy, name, ha="right", va="center", fontsize=8.5,
+                    color=_solid(cmapname, 0.9))
+        ax.text(-1.0, Y_PATH, "path", ha="right", va="center", fontsize=8.5, color="black")
+
+    for x, icls in zip(xs, cols):
+        ax.add_patch(Circle((x, Y_PATH), 0.33, facecolor="#c9c9c9", edgecolor="black",
+                    lw=0.8, zorder=3))
+        ax.text(x, Y_PATH, icls, ha="center", va="center", fontsize=7.5, color="black", zorder=4)
+
+    for (gene, li), gy in zip(rows, gene_y):
+        cmap = _cmap(LEVEL_CMAPS[li])
+        vals = [expr(icls, gene) for icls in cols]
+        mns = [v[0] for v in vals]
+        if color_norm == "row":
+            m = max(mns) or 1.0
+            cvals = [v / m for v in mns]
+        else:
+            cvals = mns
+        ax.text(-1.0, gy, gene, ha="right", va="center", fontsize=6.5,
+                color=_solid(LEVEL_CMAPS[li], 0.95))
+        for x, (mn, fr), cv in zip(xs, vals, cvals):
+            if fr <= min_frac:
+                continue
+            face = cmap(color_floor + (1 - color_floor) * cv)
+            ax.scatter([x], [gy], s=8 + fr * max_dot, facecolor=face, edgecolor="none", zorder=3)
+
+    lx, bw = max(xs) + 1.7, 0.95
+    ly = y_top
+    ax.text(lx, ly, "fraction", fontsize=8.5, va="top", ha="left"); ly -= 0.85
+    for fr in [0.25, 0.5, 1.0]:
+        ax.scatter([lx + 0.28], [ly], s=8 + fr * max_dot, facecolor="0.5", edgecolor="none")
+        ax.text(lx + 0.95, ly, f"{int(fr * 100)}%", fontsize=8, va="center"); ly -= 0.85
+    ly -= 0.55
+    ax.text(lx, ly, "norm. expression", fontsize=8.5, va="top", ha="left"); ly -= 0.75
+    nseg, cbar_gap = 24, 0.62
+    for bi, name in enumerate([g0, g1, g2]):
+        cy = ly - bi * cbar_gap
+        cmap = _cmap(LEVEL_CMAPS[bi])
+        for s in range(nseg):
+            t = s / (nseg - 1)
+            ax.add_patch(Rectangle((lx + s * bw / nseg, cy), bw / nseg, 0.24,
+                        facecolor=cmap(color_floor + (1 - color_floor) * t), edgecolor="none", zorder=3))
+        ax.add_patch(Rectangle((lx, cy), bw, 0.24, fill=False, edgecolor="black", lw=0.5, zorder=4))
+        ax.text(lx + bw + 0.18, cy + 0.12, name, fontsize=8,
+                color=_solid(LEVEL_CMAPS[bi], 0.9), va="center")
+    cy_last = ly - 2 * cbar_gap
+    ax.text(lx, cy_last - 0.12, "0", fontsize=7.5, ha="left", va="top")
+    ax.text(lx + bw, cy_last - 0.12, "1", fontsize=7.5, ha="right", va="top")
+
+    ax.text(-1.0, y_top + 0.4, "all-paths hierarchy marker map", fontsize=11, ha="left", va="bottom")
+    ax.set_xlim(-3.4, lx + bw + 1.6)
+    ax.set_ylim(min(y_bot - 0.6, cy_last - 0.4), y_top + 1.0)
+    ax.set_aspect("equal")
+    ax.axis("off")
+    fig.tight_layout()
+
+    if save:
+        fig.savefig(save, bbox_inches="tight", format="pdf", dpi=300)
+    plt.close(fig)
+    return fig, ax

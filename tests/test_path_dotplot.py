@@ -120,3 +120,21 @@ def test_bad_icls_raises():
     hr = _toy_hr()
     with pytest.raises(ValueError):
         hr.path_markers_dotplot("999")
+
+
+def test_full_map_bfs_dfs():
+    hr = _toy_hr()
+    for od in ("bfs", "dfs"):
+        fig, ax = hr.hierarchy_markers_dotplot(n_markers=2, order=od)
+        assert isinstance(fig, plt.Figure)
+        # every node at every level contributes markers -> more gene rows than a
+        # single path's 3 blocks.
+        n_gene_rows = sum(1 for t in ax.texts if t.get_text() in GENES)
+        assert n_gene_rows > 3
+        plt.close("all")
+
+
+def test_full_map_bad_order_raises():
+    hr = _toy_hr()
+    with pytest.raises(ValueError):
+        hr.hierarchy_markers_dotplot(order="sideways")

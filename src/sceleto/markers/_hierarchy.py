@@ -167,6 +167,18 @@ class HierarchyRun:
         from ._path_dotplot import path_markers_dotplot
         return path_markers_dotplot(self, str(icls), **kwargs)
 
+    def hierarchy_markers_dotplot(self, **kwargs):
+        """FULL marker map: every node's top-N markers (rows) vs all leaves.
+
+        The all-paths generalization of :meth:`path_markers_dotplot` — instead of
+        one reference path, every cluster at every level contributes its top-N
+        markers, grouped into 3 level-bands, over the whole tree. Very tall; keep
+        ``n_markers`` small and save as PDF. Returns ``(fig, ax)``. See
+        :func:`sceleto.markers._path_dotplot.hierarchy_markers_dotplot`.
+        """
+        from ._path_dotplot import hierarchy_markers_dotplot
+        return hierarchy_markers_dotplot(self, **kwargs)
+
     def compare_markers_batch(
         self,
         icls: str,
