@@ -138,3 +138,17 @@ def test_full_map_bad_order_raises():
     hr = _toy_hr()
     with pytest.raises(ValueError):
         hr.hierarchy_markers_dotplot(order="sideways")
+
+
+def test_full_map_styles():
+    hr = _toy_hr()
+    for style in ("band", "dot"):
+        fig, ax = hr.hierarchy_markers_dotplot(n_markers=2, style=style)
+        assert isinstance(fig, plt.Figure)
+        plt.close("all")
+
+
+def test_full_map_bad_style_raises():
+    hr = _toy_hr()
+    with pytest.raises(ValueError):
+        hr.hierarchy_markers_dotplot(style="triangle")

@@ -303,13 +303,14 @@ def hierarchy_markers_dotplot(
     *,
     n_markers: Optional[int] = None,
     order: str = "dfs",
+    style: str = "band",
     color_norm: str = "global",
     color_floor: float = 0.30,
     max_dot: float = 170.0,
     min_frac: float = 0.0,
     show_tree: bool = True,
-    row_h: float = 0.60,
-    band_gap: float = 0.55,
+    row_h: Optional[float] = None,
+    band_gap: Optional[float] = None,
     figsize=None,
     save: Optional[str] = None,
 ):
@@ -327,6 +328,14 @@ def hierarchy_markers_dotplot(
     - ``"bfs"``: breadth-first — all level0 clusters, then all level1, then all
       level2. Three level-bands (each band ~ a block/diagonal).
 
+    ``style`` controls the per-cell glyph:
+
+    - ``"band"`` (default): a filled rectangle spanning the column, whose HEIGHT
+      encodes the fraction of expressing cells (color still encodes expression).
+      Rows can be thin (``row_h`` defaults to 0.18), so the map is far shorter
+      than the dot version. Raw — no minimum thickness, fraction maps linearly.
+    - ``"dot"``: a scatter dot whose AREA encodes the fraction (``row_h`` 0.60).
+
     NOTE: this stacks all nodes' markers, so the figure is very tall (roughly
     ``(n_level0 + n_level1 + n_level2) * n_markers`` rows). Best saved as a large
     PDF / used as an atlas overview; keep ``n_markers`` small.
@@ -340,12 +349,21 @@ def hierarchy_markers_dotplot(
     def _solid(name, v=0.85):
         return _cmap(name)(v)
 
+    if style not in ("band", "dot"):
+        raise ValueError("style must be 'band' or 'dot'.")
+
     levels = hr.levels
     g0, g1, g2 = levels
     df = hr.icls_path_df.set_index("icls")
     full = hr.full_gene_lists
     if n_markers is None:
         n_markers = hr.params["n_top_markers"]
+    # band packs rows tighter than dots (dots need room for their area)
+    if row_h is None:
+        row_h = 0.18 if style == "band" else 0.60
+    if band_gap is None:
+        band_gap = 0.35 if style == "band" else 0.55
+    band_w = 0.92                                # column-fill width for band cells
 
     def clu_at(icls, lvl):
         return df.loc[icls, lvl].split("@", 1)[1]
@@ -480,14 +498,33 @@ def hierarchy_markers_dotplot(
             if fr <= min_frac:
                 continue
             face = cmap(color_floor + (1 - color_floor) * cv)
-            ax.scatter([x], [gy], s=8 + fr * max_dot, facecolor=face, edgecolor="none", zorder=3)
+            if style == "band":
+                # rectangle spanning the column; height = fraction * row_h (raw,
+                # no floor), centered on the row. color = expression.
+                h = row_h * fr
+                ax.add_patch(Rectangle((x - band_w / 2, gy - h / 2), band_w, h,
+                            facecolor=face, edgecolor="none", zorder=3))
+            else:
+                ax.scatter([x], [gy], s=8 + fr * max_dot, facecolor=face,
+                           edgecolor="none", zorder=3)
 
     lx, bw = max(xs) + 1.7, 0.95
     ly = y_top
-    ax.text(lx, ly, "fraction", fontsize=8.5, va="top", ha="left"); ly -= 0.85
-    for fr in [0.25, 0.5, 1.0]:
-        ax.scatter([lx + 0.28], [ly], s=8 + fr * max_dot, facecolor="0.5", edgecolor="none")
-        ax.text(lx + 0.95, ly, f"{int(fr * 100)}%", fontsize=8, va="center"); ly -= 0.85
+    lab = "fraction (band height)" if style == "band" else "fraction"
+    ax.text(lx, ly, lab, fontsize=8.5, va="top", ha="left")
+    if style == "band":
+        ly -= 0.6
+        for fr in [0.25, 0.5, 1.0]:
+            h = row_h * fr
+            ax.add_patch(Rectangle((lx, ly - h / 2), band_w, h, facecolor="0.5",
+                        edgecolor="none"))
+            ax.text(lx + band_w + 0.2, ly, f"{int(fr * 100)}%", fontsize=8, va="center")
+            ly -= 0.6
+    else:
+        ly -= 0.85
+        for fr in [0.25, 0.5, 1.0]:
+            ax.scatter([lx + 0.28], [ly], s=8 + fr * max_dot, facecolor="0.5", edgecolor="none")
+            ax.text(lx + 0.95, ly, f"{int(fr * 100)}%", fontsize=8, va="center"); ly -= 0.85
     ly -= 0.55
     ax.text(lx, ly, "norm. expression", fontsize=8.5, va="top", ha="left"); ly -= 0.75
     nseg, cbar_gap = 24, 0.62
