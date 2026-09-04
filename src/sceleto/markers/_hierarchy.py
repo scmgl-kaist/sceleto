@@ -150,34 +150,23 @@ class HierarchyRun:
         plt.close(fig)
         return fig
 
-    def path_markers_dotplot(self, icls: str, **kwargs):
-        """Hierarchy tree + per-level top-N marker dotplot across all leaves.
+    def marker_map(self, icls: Optional[str] = None, **kwargs):
+        """Hierarchy marker map: tree + per-cluster marker grid (band or dot).
 
-        A richer companion to :meth:`compare_markers`: instead of a binary
-        presence heatmap of the de-duplicated marker union, this draws a
-        hierarchy dendrogram (level 0 -> level 1 -> level 2 -> path) on top and,
-        below it, a dotplot whose rows are the reference path's per-level top-N
-        markers (duplicates kept, row label colored by origin level) and whose
-        columns are every icls leaf. Dot color = normalized mean expression via
-        the level's colormap; dot size = fraction of expressing cells.
+        A richer companion to :meth:`compare_markers`. One figure, two scopes:
 
-        See :func:`sceleto.markers._path_dotplot.path_markers_dotplot` for the
-        full parameter list. Returns ``(fig, ax)``.
+        - ``icls=None`` (default): FULL map — every node's top-N markers over the
+          whole hierarchy (``order='dfs'|'bfs'``).
+        - ``icls='<id>'``: SINGLE path — only that path's per-level top-N markers.
+
+        Columns are every icls leaf (tree on top); rows are colored by origin
+        level; each cell encodes expression (color) and fraction of expressing
+        cells via its glyph. ``mode='band'`` (default) uses cell height for the
+        fraction (compact); ``mode='dot'`` uses dot area. Returns ``(fig, ax)``.
+        See :func:`sceleto.markers._marker_map.marker_map` for all parameters.
         """
-        from ._path_dotplot import path_markers_dotplot
-        return path_markers_dotplot(self, str(icls), **kwargs)
-
-    def hierarchy_markers_dotplot(self, **kwargs):
-        """FULL marker map: every node's top-N markers (rows) vs all leaves.
-
-        The all-paths generalization of :meth:`path_markers_dotplot` — instead of
-        one reference path, every cluster at every level contributes its top-N
-        markers, grouped into 3 level-bands, over the whole tree. Very tall; keep
-        ``n_markers`` small and save as PDF. Returns ``(fig, ax)``. See
-        :func:`sceleto.markers._path_dotplot.hierarchy_markers_dotplot`.
-        """
-        from ._path_dotplot import hierarchy_markers_dotplot
-        return hierarchy_markers_dotplot(self, **kwargs)
+        from ._marker_map import marker_map
+        return marker_map(self, icls, **kwargs)
 
     def compare_markers_batch(
         self,

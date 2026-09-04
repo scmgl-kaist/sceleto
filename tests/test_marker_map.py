@@ -1,7 +1,7 @@
-"""Tests for ``HierarchyRun.path_markers_dotplot`` (tree + path-markers dotplot).
+"""Tests for ``HierarchyRun.marker_map`` (tree + marker grid, band/dot).
 
 Builds a small ``HierarchyRun`` by hand (bypassing the marker/PAGA pipeline) so
-the plotting + tree-grouping logic is exercised deterministically.
+the plotting + tree/row logic is exercised deterministically.
 """
 
 from __future__ import annotations
@@ -56,7 +56,6 @@ def _toy_hr():
         rows, columns=["icls", "icls_full", "L0", "L1", "L2", "root"]
     )
 
-    # full gene lists per leiden id: a distinct rotation of GENES per node
     full = {}
     node_ids = {p[i] for p in PATHS.values() for i in range(3)}
     for j, nid in enumerate(sorted(node_ids)):
@@ -80,55 +79,48 @@ def _toy_hr():
     )
 
 
-def test_returns_fig_and_ax():
+# ---- single path (icls given) ----
+
+def test_path_returns_fig_and_ax():
     hr = _toy_hr()
-    fig, ax = hr.path_markers_dotplot("0", n_markers=3)
+    fig, ax = hr.marker_map("0", n_markers=3)
     assert isinstance(fig, plt.Figure)
     assert ax is not None
     plt.close("all")
 
 
-def test_dedup_reduces_rows():
+def test_path_dedup_reduces_rows():
     hr = _toy_hr()
-    # with duplicates kept there are 3*n_markers rows; dedup collapses the union.
-    _, ax_keep = hr.path_markers_dotplot("0", n_markers=4, dedup=False)
-    _, ax_dedup = hr.path_markers_dotplot("0", n_markers=4, dedup=True)
+    _, ax_keep = hr.marker_map("0", n_markers=4, dedup=False)
+    _, ax_dedup = hr.marker_map("0", n_markers=4, dedup=True)
     n_keep = sum(1 for t in ax_keep.texts if t.get_text() in GENES)
     n_dedup = sum(1 for t in ax_dedup.texts if t.get_text() in GENES)
     assert n_dedup <= n_keep
     plt.close("all")
 
 
-def test_column_subset_and_norm():
+def test_path_column_subset_and_norm():
     hr = _toy_hr()
     for norm in ("global", "row"):
-        fig, ax = hr.path_markers_dotplot(
-            "0", n_markers=2, columns=["0", "1", "2"], color_norm=norm
-        )
+        fig, ax = hr.marker_map("0", n_markers=2, columns=["0", "1", "2"], color_norm=norm)
         assert isinstance(fig, plt.Figure)
         plt.close("all")
-
-
-def test_no_tree_runs():
-    hr = _toy_hr()
-    fig, ax = hr.path_markers_dotplot("3", n_markers=2, show_tree=False)
-    assert isinstance(fig, plt.Figure)
-    plt.close("all")
 
 
 def test_bad_icls_raises():
     hr = _toy_hr()
     with pytest.raises(ValueError):
-        hr.path_markers_dotplot("999")
+        hr.marker_map("999")
 
 
-def test_full_map_bfs_dfs():
+# ---- full map (icls=None) ----
+
+def test_full_map_default_and_orders():
     hr = _toy_hr()
-    for od in ("bfs", "dfs"):
-        fig, ax = hr.hierarchy_markers_dotplot(n_markers=2, order=od)
+    for order in ("dfs", "bfs"):
+        fig, ax = hr.marker_map(n_markers=2, order=order)
         assert isinstance(fig, plt.Figure)
-        # every node at every level contributes markers -> more gene rows than a
-        # single path's 3 blocks.
+        # full map has more gene rows than a single path's 3 blocks
         n_gene_rows = sum(1 for t in ax.texts if t.get_text() in GENES)
         assert n_gene_rows > 3
         plt.close("all")
@@ -137,18 +129,28 @@ def test_full_map_bfs_dfs():
 def test_full_map_bad_order_raises():
     hr = _toy_hr()
     with pytest.raises(ValueError):
-        hr.hierarchy_markers_dotplot(order="sideways")
+        hr.marker_map(order="sideways")
 
 
-def test_full_map_styles():
+# ---- modes / misc ----
+
+def test_modes_band_and_dot():
     hr = _toy_hr()
-    for style in ("band", "dot"):
-        fig, ax = hr.hierarchy_markers_dotplot(n_markers=2, style=style)
-        assert isinstance(fig, plt.Figure)
-        plt.close("all")
+    for scope in (None, "0"):
+        for mode in ("band", "dot"):
+            fig, ax = hr.marker_map(scope, n_markers=2, mode=mode)
+            assert isinstance(fig, plt.Figure)
+            plt.close("all")
 
 
-def test_full_map_bad_style_raises():
+def test_bad_mode_raises():
     hr = _toy_hr()
     with pytest.raises(ValueError):
-        hr.hierarchy_markers_dotplot(style="triangle")
+        hr.marker_map(mode="triangle")
+
+
+def test_no_tree_runs():
+    hr = _toy_hr()
+    fig, ax = hr.marker_map("3", n_markers=2, show_tree=False)
+    assert isinstance(fig, plt.Figure)
+    plt.close("all")
