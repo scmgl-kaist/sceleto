@@ -358,9 +358,10 @@ def hierarchy_markers_dotplot(
     full = hr.full_gene_lists
     if n_markers is None:
         n_markers = hr.params["n_top_markers"]
-    # band packs rows tighter than dots (dots need room for their area)
+    # band packs rows tighter than dots, but rows must stay tall enough that the
+    # gene labels (fontsize ~6.5) don't collide vertically.
     if row_h is None:
-        row_h = 0.18 if style == "band" else 0.60
+        row_h = 0.30 if style == "band" else 0.60
     if band_gap is None:
         band_gap = 0.35 if style == "band" else 0.55
     band_w = 0.92                                # column-fill width for band cells
