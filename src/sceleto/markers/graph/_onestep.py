@@ -237,6 +237,12 @@ def run_marker_graph(
             min_frac_high=min_frac_high,
             max_mean_low=max_mean_low,
             min_nexpr_any=min_nexpr_any,
+            # Batch t-test gate — must match the downstream filter so the
+            # suggested threshold guarantees coverage among t-test survivors.
+            batch_key=batch_key,
+            batch_min_cells=batch_min_cells,
+            batch_ttest_alpha=batch_ttest_alpha,
+            batch_ttest_min_batches=batch_ttest_min_batches,
         )
         suggested_thres_fc = suggest_fc_threshold(sweep_df)
         active_thres = suggested_thres_fc

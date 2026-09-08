@@ -75,6 +75,12 @@ def sweep_fc_threshold(
     min_frac_high: float = 0.2,
     max_mean_low: float = 0.2,
     min_nexpr_any: int = 0,
+    # Batch t-test (applied as a candidate gate before sweeping, so the
+    # suggested threshold is coverage-aware w.r.t. the t-test survivors)
+    batch_key: Optional[str] = None,
+    batch_min_cells: int = 5,
+    batch_ttest_alpha: float = 0.05,
+    batch_ttest_min_batches: int = 3,
     **ctx_kwargs,
 ) -> pd.DataFrame:
     """Sweep edge-metric thresholds and summarize edge/gene statistics.
@@ -98,6 +104,15 @@ def sweep_fc_threshold(
         Whether to use adata.raw.
     n_steps
         Number of steps per phase when thresholds="auto".
+    batch_key
+        If provided, apply the batch pseudobulk Welch t-test as a candidate
+        gate *before* sweeping. Edges are then covered/uncovered relative to
+        the t-test survivors, so the suggested threshold accounts for genes
+        the t-test will drop downstream. ``n_edges_total`` is still counted on
+        the pre-t-test (expression-passing) edge set, so edges left orphaned
+        by the t-test show up as uncovered at every threshold.
+    batch_min_cells, batch_ttest_alpha, batch_ttest_min_batches
+        Forwarded to :func:`sceleto.markers.graph._batch.filter_edge_gene_df_by_ttest`.
     **ctx_kwargs
         Passed to build_context (e.g. k, exclude, min_cells_per_group).
 
@@ -167,13 +182,29 @@ def sweep_fc_threshold(
         lo_default = 0.0
 
     df["edge"] = df["start"].astype(str) + "->" + df["end"].astype(str)
+    # n_edges_total is fixed on the pre-t-test (expression-passing) edge set so
+    # that edges orphaned by the t-test remain visible as uncovered.
     total_edges = df["edge"].nunique()
 
-    # Ground truth genes present in data
+    # Ground truth genes present in data (measured on the pre-t-test pool so
+    # GT genes that fail the t-test are still tracked as dropping out).
     gt_in_data = None
     if ground_truth is not None:
         all_genes = set(df["gene"])
         gt_in_data = [g for g in ground_truth if g in all_genes]
+
+    # Batch t-test candidate gate: drop non-reproducible (gene, edge) rows
+    # before the threshold sweep so suggest_fc_threshold measures coverage on
+    # the same survivor pool the main pipeline will use. The t-test p-value is a
+    # property of (gene, edge) independent of the metric value, so gating here
+    # and thresholding later commute with the main pipeline's order.
+    if batch_key is not None:
+        from ._batch import filter_edge_gene_df_by_ttest
+        df = filter_edge_gene_df_by_ttest(
+            adata, ctx, df, batch_key,
+            use_raw=use_raw, min_cells=batch_min_cells,
+            min_batches=batch_ttest_min_batches, alpha=batch_ttest_alpha, eps=eps,
+        )
 
     if isinstance(thresholds, str) and thresholds == "auto":
         # Phase 1: coarse sweep from baseline to 95th percentile of the metric
