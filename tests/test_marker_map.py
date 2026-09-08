@@ -154,3 +154,33 @@ def test_no_tree_runs():
     fig, ax = hr.marker_map("3", n_markers=2, show_tree=False)
     assert isinstance(fig, plt.Figure)
     plt.close("all")
+
+
+# ---- dedup default (full dfs on, single path / bfs off) ----
+
+def _n_gene_rows(ax):
+    return sum(1 for t in ax.texts if t.get_text() in GENES)
+
+
+def test_full_dfs_dedup_default_on():
+    hr = _toy_hr()
+    _, ax_default = hr.marker_map(n_markers=4, order="dfs")            # -> dedup on
+    _, ax_off = hr.marker_map(n_markers=4, order="dfs", dedup=False)
+    assert _n_gene_rows(ax_default) < _n_gene_rows(ax_off)
+    plt.close("all")
+
+
+def test_bfs_dedup_default_off():
+    hr = _toy_hr()
+    _, ax_default = hr.marker_map(n_markers=4, order="bfs")            # -> dedup off
+    _, ax_off = hr.marker_map(n_markers=4, order="bfs", dedup=False)
+    assert _n_gene_rows(ax_default) == _n_gene_rows(ax_off)
+    plt.close("all")
+
+
+def test_single_path_dedup_default_off():
+    hr = _toy_hr()
+    _, ax_default = hr.marker_map("0", n_markers=4)                    # -> dedup off
+    _, ax_off = hr.marker_map("0", n_markers=4, dedup=False)
+    assert _n_gene_rows(ax_default) == _n_gene_rows(ax_off)
+    plt.close("all")

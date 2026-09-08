@@ -43,7 +43,7 @@ def marker_map(
     mode: str = "band",
     order: str = "dfs",
     n_markers: Optional[int] = None,
-    dedup: bool = False,
+    dedup: Optional[bool] = None,
     columns: Union[str, Sequence[str]] = "all",
     color_norm: str = "global",
     color_floor: float = 0.30,
@@ -75,8 +75,12 @@ def marker_map(
     n_markers
         Top-N markers per node/level. ``None`` → the run's ``n_top_markers``.
     dedup
-        SINGLE path only. Collapse the 3 levels' markers into a set (like
-        ``compare_markers``). Default ``False`` keeps duplicates.
+        Drop markers already shown higher up the same lineage. ``None`` (default)
+        → ON for the FULL ``dfs`` map (cumulative within each ``leiden_1.0``
+        subtree: a gene is kept only at the highest level / earliest sibling it
+        appears, and the running list resets at each new ``leiden_1.0``); OFF for
+        single paths and for ``bfs``. On a single path, ``True`` collapses the 3
+        levels to a set (like ``compare_markers``). No effect on ``bfs``.
     columns
         ``"all"`` (default) or an explicit list of icls ids; always re-ordered by
         the hierarchy so the tree is planar.
@@ -133,6 +137,10 @@ def marker_map(
     if not full_map and ref_icls not in df.index:
         raise ValueError(f"marker_map: icls {ref_icls!r} not found.")
 
+    # default: declutter the full dfs map, keep single-path / bfs verbatim
+    if dedup is None:
+        dedup = full_map and order == "dfs"
+
     # --- columns: all leaves (or subset), hierarchy-ordered ---
     if isinstance(columns, str) and columns == "all":
         cols = list(df.index)
@@ -144,24 +152,36 @@ def marker_map(
     # --- rows (gene, level_index) + gap-before flags ---
     rows, gaps = [], []
 
-    def _emit(level_i, cluster_id, gap):
+    def _emit(level_i, cluster_id, gap, acc=None):
+        """Append a node's top-N markers as rows.
+
+        ``acc`` (a set) enables dedup: genes already in it are skipped and the
+        kept ones added, so a marker shows only at the highest level / earliest
+        sibling of its lineage.
+        """
         first = True
         for gene in full[f"{levels[level_i]}@{cluster_id}"][:n_markers]:
+            if acc is not None and gene in acc:
+                continue
             rows.append((gene, level_i))
             gaps.append(gap if first else False)
+            if acc is not None:
+                acc.add(gene)
             first = False
 
     if full_map:
         if order == "dfs":
             prev = (None, None, None)
+            acc = None
             for c in cols:
                 a, b, cc = clu_at(c, g0), clu_at(c, g1), clu_at(c, g2)
                 if a != prev[0]:
-                    _emit(0, a, gap=len(rows) > 0)
+                    acc = set() if dedup else None   # reset per leiden_1.0 subtree
+                    _emit(0, a, gap=len(rows) > 0, acc=acc)
                 if (a, b) != prev[:2]:
-                    _emit(1, b, gap=False)
+                    _emit(1, b, gap=False, acc=acc)
                 if (a, b, cc) != prev:
-                    _emit(2, cc, gap=False)
+                    _emit(2, cc, gap=False, acc=acc)
                 prev = (a, b, cc)
         elif order == "bfs":
             for li, g in enumerate(levels):
@@ -175,18 +195,10 @@ def marker_map(
         else:
             raise ValueError("order must be 'bfs' or 'dfs'.")
     else:
-        ref = df.loc[ref_icls]
-        ref_clu = [ref[g0], ref[g1], ref[g2]]
-        seen = set()
-        for li, lvl_str in enumerate(ref_clu):
-            first = True
-            for gene in full[lvl_str][:n_markers]:
-                if dedup and gene in seen:
-                    continue
-                seen.add(gene)
-                rows.append((gene, li))
-                gaps.append(li > 0 and first)     # gap between the 3 level blocks
-                first = False
+        pk = [clu_at(ref_icls, g0), clu_at(ref_icls, g1), clu_at(ref_icls, g2)]
+        acc = set() if dedup else None
+        for li in range(3):
+            _emit(li, pk[li], gap=(li > 0), acc=acc)
 
     # --- expression at the finest (leaf) resolution ---
     ctx2 = hr.contexts[g2]
