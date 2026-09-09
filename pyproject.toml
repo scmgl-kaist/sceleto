@@ -8,6 +8,10 @@ version = "0.1.0"
 description = "A backbone package for single-cell RNA-seq analysis — marker discovery, gene network, and cell type annotation"
 requires-python = ">=3.10"
 authors = [{ name = "Seungmin Cheong" }]
+license = { text = "BSD-3-Clause" }
+classifiers = [
+    "License :: OSI Approved :: BSD License",
+]
 dependencies = [
     "anndata>=0.10",
     "scanpy>=1.10",
@@ -34,4 +38,3 @@ include = ["sceleto*"]
 
 [tool.setuptools.package-data]
 "sceleto.data" = ["*.json"]
-"sceleto.interaction.db" = ["*.parquet"]

@@ -11,7 +11,6 @@ Single-cell RNA-seq analysis toolkit — marker discovery, gene network, and cel
    markers_tutorial
    marker_map_tutorial
    network_tutorial
-   interaction_tutorial
    category_dotplot_tutorial
    demos
 
@@ -22,5 +21,4 @@ Single-cell RNA-seq analysis toolkit — marker discovery, gene network, and cel
    api/markers
    api/network
    api/annotation
-   api/interaction
    api/utils
