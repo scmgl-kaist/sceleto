@@ -248,6 +248,20 @@ def run_marker_graph(
         active_thres = suggested_thres_fc
         print(f"  Auto thres_{edge_metric}: {active_thres:.2f}")
 
+        # Flag genuine orphans: edges the batch t-test left with no reproducible
+        # marker at any threshold. They are excluded from the coverage target
+        # (so they don't drag the threshold down) but are reported here so they
+        # are not silently dropped from the marker graph.
+        if batch_key is not None and "n_edges_genuine_orphan" in sweep_df.columns:
+            n_orphan = int(sweep_df["n_edges_genuine_orphan"].iloc[0])
+            if n_orphan > 0:
+                n_edges = int(sweep_df["n_edges_total"].iloc[0])
+                print(
+                    f"  [batch t-test] {n_orphan}/{n_edges} edge(s) have no "
+                    f"batch-reproducible marker (genuine orphans); excluded from "
+                    f"the coverage target. Inspect via the returned edge_gene_df."
+                )
+
     # Write the resolved threshold back to the metric-specific variable.
     # The inactive threshold is not used for filtering but must be a finite
     # float so it can be passed through to compute_fc_delta.

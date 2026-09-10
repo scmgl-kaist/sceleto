@@ -18,8 +18,22 @@ def _run_sweep(
     thresholds: np.ndarray,
     gt_in_data: Optional[List[str]] = None,
     edge_metric: Literal["fc", "delta"] = "fc",
+    coverable_edges: Optional[int] = None,
 ) -> pd.DataFrame:
-    """Internal: sweep thresholds on a pre-computed edge-gene DataFrame."""
+    """Internal: sweep thresholds on a pre-computed edge-gene DataFrame.
+
+    ``coverable_edges`` is the number of edges that retain at least one
+    candidate marker in *df* at the metric floor (i.e. edges that *can* be
+    covered by some threshold). When a batch t-test gate has removed every
+    marker of an edge, that edge is a *genuine orphan* and is excluded from the
+    coverage target via ``n_edges_uncovered_coverable`` — otherwise a single
+    unmarkerable edge would drag the suggested threshold down to the floor.
+    Defaults to ``total_edges`` (no genuine orphans), preserving old behaviour.
+    """
+    if coverable_edges is None:
+        coverable_edges = total_edges
+    n_genuine_orphan = total_edges - coverable_edges
+
     rows = []
     for t in thresholds:
         df_t = df[df[edge_metric] >= t]
@@ -28,6 +42,8 @@ def _run_sweep(
         edges_covered = set(df_t["edge"])
         n_covered = len(edges_covered)
         n_uncovered = total_edges - n_covered
+        # covered edges are always a subset of coverable edges, so this is >= 0
+        n_uncovered_coverable = coverable_edges - n_covered
 
         if n_pairs > 0:
             mpe = df_t.groupby("edge")["gene"].nunique()
@@ -42,6 +58,9 @@ def _run_sweep(
             "n_edges_total": total_edges,
             "n_edges_covered": n_covered,
             "n_edges_uncovered": n_uncovered,
+            "n_edges_coverable": coverable_edges,
+            "n_edges_genuine_orphan": n_genuine_orphan,
+            "n_edges_uncovered_coverable": n_uncovered_coverable,
             "markers_per_edge_median": med,
             "markers_per_edge_min": mn,
             "markers_per_edge_max": mx,
@@ -120,8 +139,14 @@ def sweep_fc_threshold(
     -------
     DataFrame with columns:
         threshold, n_pairs, n_genes, n_edges_total, n_edges_covered,
-        n_edges_uncovered, markers_per_edge_median, markers_per_edge_min,
-        markers_per_edge_max.
+        n_edges_uncovered, n_edges_coverable, n_edges_genuine_orphan,
+        n_edges_uncovered_coverable, markers_per_edge_median,
+        markers_per_edge_min, markers_per_edge_max.
+        ``n_edges_coverable`` is the edges that still have a marker after the
+        t-test gate; ``n_edges_genuine_orphan`` = total - coverable; and
+        ``n_edges_uncovered_coverable`` counts only coverable edges lost at a
+        threshold (the target used by suggest_fc_threshold). Without a batch
+        gate coverable == total and the coverable column equals n_edges_uncovered.
         If ground_truth is provided: gt_genes_surviving, gt_edges_covered.
     """
     from ._context import build_context
@@ -206,6 +231,12 @@ def sweep_fc_threshold(
             min_batches=batch_ttest_min_batches, alpha=batch_ttest_alpha, eps=eps,
         )
 
+    # Coverable edges = edges that still have >=1 candidate marker at the floor
+    # (after the optional t-test gate). Edges the gate emptied out are genuine
+    # orphans; the coverage target below excludes them so they can't collapse
+    # the suggested threshold. Without a gate this equals total_edges.
+    coverable_edges = int(df["edge"].nunique())
+
     if isinstance(thresholds, str) and thresholds == "auto":
         # Phase 1: coarse sweep from baseline to 95th percentile of the metric
         metric_values = df[edge_metric].values
@@ -214,12 +245,14 @@ def sweep_fc_threshold(
         else:
             hi = max(np.percentile(metric_values, 95), 2.0 * lo_default + 1e-3)
         coarse = np.linspace(lo_default, hi, n_steps)
-        coarse_df = _run_sweep(df, total_edges, coarse, gt_in_data, edge_metric=edge_metric)
+        coarse_df = _run_sweep(df, total_edges, coarse, gt_in_data,
+                               edge_metric=edge_metric, coverable_edges=coverable_edges)
 
-        # Find where uncovered edges first appear
-        first_uncovered_idx = coarse_df[coarse_df["n_edges_uncovered"] > 0].index
+        # Find where a *coverable* edge first becomes uncovered (genuine orphans
+        # are ignored so the fine sweep centres on the real transition).
+        first_uncovered_idx = coarse_df[coarse_df["n_edges_uncovered_coverable"] > 0].index
         if len(first_uncovered_idx) == 0:
-            # No uncovered edges even at 95th pct — just return coarse
+            # No coverable edge uncovered even at 95th pct — just return coarse
             return coarse_df
 
         # Phase 2: fine sweep around the transition point
@@ -228,7 +261,8 @@ def sweep_fc_threshold(
         fine_hi = float(coarse_df.loc[min(idx + 1, len(coarse_df) - 1), "threshold"])
 
         fine = np.linspace(fine_lo, fine_hi, n_steps)
-        fine_df = _run_sweep(df, total_edges, fine, gt_in_data, edge_metric=edge_metric)
+        fine_df = _run_sweep(df, total_edges, fine, gt_in_data,
+                             edge_metric=edge_metric, coverable_edges=coverable_edges)
 
         # Merge: fine + coarse (beyond fine range)
         result = pd.concat([
@@ -239,11 +273,18 @@ def sweep_fc_threshold(
 
     # Explicit thresholds
     thresholds = np.asarray(thresholds, dtype=float)
-    return _run_sweep(df, total_edges, thresholds, gt_in_data, edge_metric=edge_metric)
+    return _run_sweep(df, total_edges, thresholds, gt_in_data,
+                      edge_metric=edge_metric, coverable_edges=coverable_edges)
 
 
 def suggest_fc_threshold(summary_df: pd.DataFrame) -> float:
-    """Suggest FC threshold: the highest value before any edge becomes uncovered.
+    """Suggest FC threshold: the highest value before any *coverable* edge is lost.
+
+    Coverage is measured against the coverable edge set when available
+    (``n_edges_uncovered_coverable``), i.e. genuine orphans — edges left with no
+    marker by a batch t-test gate — are excluded from the target. This prevents
+    a single unmarkerable edge from collapsing the suggestion to the floor.
+    Falls back to ``n_edges_uncovered`` for sweeps produced without the column.
 
     Parameters
     ----------
@@ -254,9 +295,14 @@ def suggest_fc_threshold(summary_df: pd.DataFrame) -> float:
     -------
     Suggested threshold value.
     """
-    covered = summary_df[summary_df["n_edges_uncovered"] == 0]
+    col = (
+        "n_edges_uncovered_coverable"
+        if "n_edges_uncovered_coverable" in summary_df.columns
+        else "n_edges_uncovered"
+    )
+    covered = summary_df[summary_df[col] == 0]
     if len(covered) == 0:
-        # All thresholds have uncovered edges; return the lowest
+        # Every threshold loses a coverable edge; return the lowest
         return float(summary_df["threshold"].iloc[0])
     return float(covered["threshold"].iloc[-1])
 
