@@ -12,6 +12,7 @@ Single-cell RNA-seq analysis toolkit — marker discovery, gene network, and cel
    marker_map_tutorial
    network_tutorial
    category_dotplot_tutorial
+   bandplot_tutorial
    demos
 
 .. toctree::

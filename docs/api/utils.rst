@@ -6,6 +6,16 @@ Dotplot
 
 .. autofunction:: sceleto.dotplot
 
+Band plot
+---------
+
+Compact dotplot alternative: each (gene, group) cell is a *band* whose extent
+encodes the fraction of expressing cells and whose color encodes mean expression
+(a standalone generalization of ``HierarchyRun.marker_map``'s band rendering).
+See the :doc:`band plot tutorial </bandplot_tutorial>`.
+
+.. autofunction:: sceleto.bandplot
+
 Category Dotplot
 ----------------
 
