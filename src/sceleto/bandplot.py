@@ -248,13 +248,28 @@ def bandplot(
     if group_rotation is None:
         group_rotation = 90 if max((len(str(g)) for g in group_levels), default=0) > 3 else 0
 
+    GENE_FS, GRP_FS, BRACKET_FS = 10.5, 11.5, 10.5
+    LEG_W_IN = 2.2                       # inches reserved for the right-hand legend
+    _CHAR_IN = 0.095                     # rough inches/char, only for the initial size
+    max_gene_len = max((len(str(g)) for g in gene_order), default=1)
+    max_grp_len = max((len(str(g)) for g in group_levels), default=1)
+
+    # left labels are genes (default) or groups (swapped); estimate their width so
+    # the figure is wide enough for the grid, the labels+brackets, and the legend.
+    if not swap_axes:
+        left_len, n_cols, n_rows = (max_gene_len if label_genes else 0), K, len(gene_order)
+    else:
+        left_len, n_cols, n_rows = max_grp_len, len(gene_order), K
+    m_left_est = _CHAR_IN * left_len + 0.14
+    if brackets and not swap_axes:
+        m_left_est += 0.16 + BRACKET_FS / 72.0 * 1.6 + 0.10
+
     if figsize is None:
-        n_gene_axis, n_grp_axis = len(gene_order) + len(brackets) * group_gap, K
-        if swap_axes:  # genes on x
-            figsize = (2.6 + n_gene_axis * 0.28, max(3.0, 2.0 + n_grp_axis * 0.26))
-        else:          # genes on y — floor the height so the right-hand legend fits
-            figsize = (3.0 + n_grp_axis * 0.30, max(3.2, 1.4 + n_gene_axis * 0.20))
+        grid_w = 0.32 * n_cols + 0.4
+        row_h = 0.30 if swap_axes else 0.22
+        figsize = (m_left_est + grid_w + LEG_W_IN, max(3.2, row_h * n_rows + 1.2))
     fig, ax = plt.subplots(figsize=figsize)
+    ax.set_position([0, 0, 1, 1])        # axes fills the canvas → du_x = xrange/fw exactly
 
     def _face(cval):
         return eff_cmap(norm(cval))
@@ -282,14 +297,9 @@ def bandplot(
                                        gene_ext, band_w, facecolor=face,
                                        edgecolor="none", zorder=3))
 
-    # ── manual labels (axis is turned off so xlim/ylim can be extended to
-    #    fit the legends without dragging tick labels around, like marker_map) ─
-    GENE_FS, GRP_FS, BRACKET_FS = 10.5, 11.5, 10.5
-    CHAR = 0.16  # rough data-units/char for the initial limits (refined by measuring below)
-    max_gene_len = max((len(str(g)) for g in gene_order), default=1)
-    max_grp_len = max((len(str(g)) for g in group_levels), default=1)
-
-    left_texts, bottom_texts = [], []   # measured below to clear labels exactly
+    # ── manual labels (axis off; everything is placed in data coords and the
+    #    limits host the legend, like marker_map) ──
+    left_texts, bottom_texts = [], []
     if not swap_axes:
         # genes on y (left labels), groups on x (bottom labels)
         base_x0, base_x1 = -0.7, K - 0.3
@@ -301,8 +311,6 @@ def bandplot(
         for j, grp in enumerate(group_levels):
             bottom_texts.append(ax.text(spos[j], base_y0 + 0.15, grp, ha="center",
                                         va="top", rotation=group_rotation, fontsize=GRP_FS))
-        lim_left = -0.65 - (CHAR * max_gene_len + 0.2 if label_genes else 0.0)
-        lim_bottom = base_y0 - (0.5 if group_rotation == 0 else CHAR * max_grp_len + 0.3)
     else:
         # genes on x (bottom labels), groups on y (left labels)
         base_x0, base_x1 = -0.7, gpos.max() + 0.6
@@ -314,66 +322,41 @@ def bandplot(
             for g, gx in zip(gene_order, gpos):
                 bottom_texts.append(ax.text(gx, base_y0 + 0.15, g, ha="center",
                                             va="top", rotation=90, fontsize=GENE_FS))
-        lim_left = -0.65 - (CHAR * max_grp_len + 0.2)
-        lim_bottom = base_y0 - (CHAR * max_gene_len + 0.3 if label_genes else 0.3)
-
     ax.axis("off")
-    lim_right, lim_top = base_x1, base_y1
 
-    # Measure the true extent of the left / bottom labels (pixel size is fixed by
-    # font, independent of the axis limits) so brackets and the reserved margins
-    # clear them at ANY font size. We render once under a provisional xlim/ylim,
-    # read back the data-space edges, then only ever extend outward — so this can
-    # tighten spacing but never re-introduce overlap.
-    ax.set_xlim(lim_left - 0.3, base_x1 + 3.0)
-    ax.set_ylim(lim_bottom - 0.3, lim_top + 0.6)
-    measured_left = None
+    # Measure the label footprints in INCHES. A glyph's pixel size is fixed by the
+    # font, independent of the axis limits, so this is stable no matter how the
+    # grid is scaled afterwards (the earlier data-space measurement broke because
+    # the legend fixpoint changed the x scale after measuring). Fall back to a
+    # char-count estimate if the renderer is unavailable.
+    fw, fh = fig.get_size_inches()
+    dpi = fig.get_dpi()
+    ax.set_xlim(base_x0 - 3.0, base_x1 + 5.0)
+    ax.set_ylim(base_y0 - 3.0, base_y1 + 2.0)
+    left_w_in = _CHAR_IN * left_len
+    bottom_h_in = 0.16 if (group_rotation == 0 and not swap_axes) else \
+        _CHAR_IN * (max_grp_len if not swap_axes else max_gene_len)
     try:
         fig.canvas.draw()
         r = fig.canvas.get_renderer()
-        inv = ax.transData.inverted()
         if left_texts:
-            measured_left = min(inv.transform((t.get_window_extent(r).x0, 0))[0]
-                                for t in left_texts)
-            lim_left = min(lim_left, measured_left - 0.2)
+            left_w_in = max(t.get_window_extent(r).width for t in left_texts) / dpi
         if bottom_texts:
-            measured_bottom = min(inv.transform((0, t.get_window_extent(r).y0))[1]
-                                  for t in bottom_texts)
-            lim_bottom = min(lim_bottom, measured_bottom - 0.2)
-    except Exception:  # pragma: no cover - fall back to the CHAR estimates
+            bottom_h_in = max(t.get_window_extent(r).height for t in bottom_texts) / dpi
+    except Exception:  # pragma: no cover - keep the char-count estimates
         pass
 
-    # ── bracket labels for gene blocks (mapping input) ────────────────
-    # All blocks share one bracket line position so the brackets form a single
-    # column (not a staircase); the block gap is 0 by default so blocks abut.
-    if brackets and not swap_axes:  # vertical brackets, left of the gene labels
-        edge = measured_left if measured_left is not None else lim_left
-        bx = edge - 0.3
-        for label, lo, hi in brackets:
-            mid = (lo + hi) / 2.0
-            ax.plot([bx, bx], [-hi - 0.35, -lo + 0.35], color="0.4", lw=1.0, zorder=2)
-            ax.text(bx - 0.12, -mid, label, rotation=90, ha="right", va="center",
-                    fontsize=BRACKET_FS)
-        lim_left = min(lim_left, bx - 0.45)   # rotated labels are ~font-height wide
-    elif brackets:                  # horizontal brackets, above the plot
-        by = base_y1 + 0.3
-        for label, lo, hi in brackets:
-            mid = (lo + hi) / 2.0
-            ax.plot([lo - 0.35, hi + 0.35], [by, by], color="0.4", lw=1.0, zorder=2)
-            ax.text(mid, by + 0.15, label, ha="center", va="bottom", fontsize=BRACKET_FS)
-        lim_top = max(lim_top, by + 0.65)
-
-    # ── legends: fraction (band size) + expression colorbar ───────────
-    # Under aspect="auto" the x and y data scales differ and change with the
-    # plot's shape, so laying the legend out in raw data units desyncs from the
-    # (point-sized) text. Instead work in INCHES and convert per axis: du_x/du_y
-    # are data-units-per-inch. The legend column is pinned to LEG_W_IN inches
-    # wide (a fixpoint closes lim_right ↔ du_x), so it looks identical no matter
-    # how tall/short or wide/narrow the grid is.
-    LEG_W_IN = 2.2
-    fw, fh = fig.get_size_inches()
-    du_y = (lim_top - lim_bottom) / fh
-    du_x = (base_x1 - lim_left) / max(fw - LEG_W_IN, 0.8)
+    # ── solve the data<->inch scale per axis (aspect="auto", x and y differ) ──
+    # x: reserve a fixed left margin (labels + optional vertical brackets) and a
+    # fixed LEG_W_IN legend column; a fixpoint gives du_x = data-units per inch.
+    has_left_brackets = bool(brackets) and not swap_axes
+    m_left_in = left_w_in + 0.14
+    if has_left_brackets:
+        m_left_in += 0.16 + BRACKET_FS / 72.0 * 1.6 + 0.10
+    du_x = (base_x1 + 0.65) / max(fw - LEG_W_IN - m_left_in, 0.6)
+    # y: reserve the bottom label band (+ a top bracket band when swapped)
+    top_in = 0.55 if (brackets and swap_axes) else 0.12
+    du_y = (base_y1 - base_y0) / max(fh - top_in - bottom_h_in - 0.14, 0.6)
 
     def IX(inch):
         return inch * du_x
@@ -381,11 +364,34 @@ def bandplot(
     def IY(inch):
         return inch * du_y
 
+    lim_left = -0.65 - m_left_in * du_x
+    lim_right = base_x1 + LEG_W_IN * du_x
+    lim_bottom = base_y0 - (bottom_h_in + 0.14) * du_y
+    lim_top = base_y1 + top_in * du_y
+
+    # ── brackets for gene blocks (mapping input): one shared line position so
+    #    the brackets form a single column (never a staircase) ──
+    if has_left_brackets:                     # vertical brackets, left of gene labels
+        edge = -0.65 - left_w_in * du_x       # measured gene-label left edge (data-x)
+        bx = edge - IX(0.16)
+        for label, lo, hi in brackets:
+            mid = (lo + hi) / 2.0
+            ax.plot([bx, bx], [-hi - 0.35, -lo + 0.35], color="0.4", lw=1.0, zorder=2)
+            ax.text(bx - IX(0.07), -mid, label, rotation=90, ha="right",
+                    va="center", fontsize=BRACKET_FS)
+    elif brackets:                            # horizontal brackets, above the plot
+        by = base_y1 + IY(0.26)
+        for label, lo, hi in brackets:
+            mid = (lo + hi) / 2.0
+            ax.plot([lo - 0.35, hi + 0.35], [by, by], color="0.4", lw=1.0, zorder=2)
+            ax.text(mid, by + IY(0.06), label, ha="center", va="bottom", fontsize=BRACKET_FS)
+
+    # ── legend: fraction key + expression colorbar (sized in inches via IX/IY) ──
     unit = "height" if not swap_axes else "width"
-    lx = base_x1 + IX(0.5)
+    lx = base_x1 + IX(0.45)
     ly = base_y1
     ax.text(lx, ly, f"fraction\n(band {unit})", fontsize=9, va="top", ha="left")
-    ly -= IY(0.55)
+    ly -= IY(0.6)
     for fr in (0.25, 0.5, 1.0):
         ext = band_max * fr                       # matches the plot bands' extent
         if not swap_axes:
@@ -394,11 +400,11 @@ def bandplot(
         else:
             ax.add_patch(Rectangle((lx, ly - IY(0.09)), ext, IY(0.18),
                                    facecolor="0.55", edgecolor="none"))
-        ax.text(lx + IX(0.6), ly, f"{int(fr * 100)}%", fontsize=8.5, va="center")
-        ly -= IY(0.32)
+        ax.text(lx + IX(0.62), ly, f"{int(fr * 100)}%", fontsize=8.5, va="center")
+        ly -= IY(0.34)
 
     # manual vertical colorbar (respects color_floor)
-    ly -= IY(0.28)
+    ly -= IY(0.30)
     ax.text(lx, ly, cbar_title, fontsize=9, va="top", ha="left")
     ly -= IY(0.55)
     cbar_h, cbar_w = IY(1.1), IX(0.34)
@@ -414,14 +420,12 @@ def bandplot(
     ax.text(lx + cbar_w + IX(0.1), cb_top - cbar_h, f"{cvmin:.2g}", fontsize=8,
             va="center", ha="left")
 
-    # final limits: the legend column is pinned to LEG_W_IN inches, so nothing is
-    # clipped even without a bbox-tight save (axis is off → labels don't move).
-    lim_right = base_x1 + IX(LEG_W_IN)
+    # final limits: everything is inside these bounds (axes fills the canvas, so
+    # no tight_layout); the legend column width is already baked into lim_right.
     lim_bottom = min(lim_bottom, cb_top - cbar_h - IY(0.2))
-    ax.set_xlim(lim_left - IX(0.1), lim_right)
-    ax.set_ylim(lim_bottom - IY(0.15), lim_top + IY(0.15))
+    ax.set_xlim(lim_left, lim_right)
+    ax.set_ylim(lim_bottom, lim_top)
     ax.set_aspect("auto")
-    fig.tight_layout()
 
     if save:
         fig.savefig(save, bbox_inches="tight", format="pdf", dpi=300)
