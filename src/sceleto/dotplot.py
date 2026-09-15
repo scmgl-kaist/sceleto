@@ -120,7 +120,7 @@ def dotplot(
     var_names: Union[Sequence[str], Mapping[str, Sequence]],
     groupby: str,
     *,
-    max_scale: bool = True,
+    max_scale: bool = False,
     groups: Optional[Sequence[str]] = None,
     swap_axes: bool = False,
     use_raw: bool = True,
@@ -136,11 +136,11 @@ def dotplot(
     Size encodes fraction of cells expressing the gene (scanpy default).
     Color depends on ``max_scale``:
 
-    - ``max_scale=True`` (default): ``group_mean(gene) / max_group(group_mean(gene))``
+    - ``max_scale=False`` (default): plain group mean of (log1p) expression with
+      scanpy's automatic color scaling — i.e. exactly what ``scanpy.pl.dotplot``
+      shows by default.
+    - ``max_scale=True``: ``group_mean(gene) / max_group(group_mean(gene))``
       per gene, so ``vmax=1`` always corresponds to the highest-expressing group.
-    - ``max_scale=False``: plain group mean of (log1p) expression with scanpy's
-      automatic color scaling — i.e. exactly what ``scanpy.pl.dotplot`` shows by
-      default.
 
     Follows scanpy's default axis orientation: genes on x-axis, groups on y-axis.
     Pass ``swap_axes=True`` to put genes on y-axis, groups on x-axis.
@@ -155,10 +155,11 @@ def dotplot(
     groupby
         Column in ``adata.obs`` to group cells by.
     max_scale
-        If ``True`` (default), color = per-gene max-normalized group mean with
-        ``vmin=0, vmax=1``.  If ``False``, color = raw group mean (log1p) with
-        scanpy's automatic color scaling, reproducing ``scanpy.pl.dotplot``'s
-        default; ``vmin``/``vmax``/``standard_scale`` may then be passed through.
+        If ``False`` (default), color = raw group mean (log1p) with scanpy's
+        automatic color scaling, reproducing ``scanpy.pl.dotplot``'s default;
+        ``vmin``/``vmax``/``standard_scale`` may then be passed through.  If
+        ``True``, color = per-gene max-normalized group mean with ``vmin=0,
+        vmax=1``.
     groups
         Subset of groups to display.  ``None`` shows all.
     swap_axes
