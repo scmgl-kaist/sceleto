@@ -23,3 +23,4 @@ Single-cell RNA-seq analysis toolkit — marker discovery, gene network, and cel
    api/network
    api/annotation
    api/utils
+   api/data
