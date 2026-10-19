@@ -237,6 +237,21 @@ def sweep_fc_threshold(
     # the suggested threshold. Without a gate this equals total_edges.
     coverable_edges = int(df["edge"].nunique())
 
+    # Empty candidate pool: every (gene, edge) was removed by the expression
+    # filters (and optional t-test gate), so there is no metric distribution to
+    # sweep. Raise an actionable error here instead of letting np.percentile on
+    # an empty array fail later with an opaque IndexError.
+    if len(df) == 0:
+        raise ValueError(
+            f"No candidate (gene, edge) pairs survived the expression filters for "
+            f"groupby={groupby!r} (edge_metric={edge_metric!r}), so an FC threshold "
+            f"cannot be suggested. This is common for transcriptionally similar "
+            f"groups or sparse targeted panels, where no gene is both abundant in "
+            f"one group and nearly absent in its neighbor. Loosen the gates "
+            f"(raise max_mean_low, lower min_frac_high, and/or lower min_mean_high) "
+            f"or pass an explicit thres_fc instead of 'auto'."
+        )
+
     if isinstance(thresholds, str) and thresholds == "auto":
         # Phase 1: coarse sweep from baseline to 95th percentile of the metric
         metric_values = df[edge_metric].values
