@@ -17,11 +17,14 @@ def us(adata,gene,groups=None, show=False, exclude =None,figsize=None,**kwargs):
 
     if isinstance(gene, str) and ',' in gene:
         gene = gene.split(',')
+    # user-supplied cmap/color_map takes precedence over the OrRd default
+    cmap = kwargs.pop('cmap', None) or kwargs.pop('color_map', None) or 'OrRd'
+    kwargs.pop('color_map', None)
     if groups:
-        sc.pl.umap(adata, color=gene, color_map='OrRd', groups=groups, show=show, **kwargs)
+        sc.pl.umap(adata, color=gene, color_map=cmap, groups=groups, show=show, **kwargs)
     else:
         if exclude:
             groups = [x for x in set(adata.obs[gene]) if x not in exclude]
-            sc.pl.umap(adata, color=gene, color_map='OrRd', groups=groups, show=show, **kwargs)
+            sc.pl.umap(adata, color=gene, color_map=cmap, groups=groups, show=show, **kwargs)
         else:
-            sc.pl.umap(adata, color=gene, color_map='OrRd', show=show, **kwargs)
+            sc.pl.umap(adata, color=gene, color_map=cmap, show=show, **kwargs)
