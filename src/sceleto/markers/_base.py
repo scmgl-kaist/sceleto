@@ -48,15 +48,19 @@ class MarkersBase:
     def __repr__(self) -> str:
         return self.summary()
 
-    def plot(self, n_top: int = 10, **kwargs):
+    def plot(self, n_top: int = 10, max_scale: bool = True, **kwargs):
         """Dotplot of ``self.markers`` against ``self.groupby``.
 
         ``n_top`` controls how many genes per group are included.
+        ``max_scale`` defaults to ``True`` here (unlike ``sceleto.dotplot``,
+        whose default is raw log1p mean) so marker genes with different
+        expression levels are comparable across groups.  Pass
+        ``max_scale=False`` for raw values (and to use ``vmin``/``vmax``).
         Remaining kwargs are forwarded to ``sceleto.dotplot``.
         """
         from sceleto.dotplot import dotplot
         genes = []
         for v in self.markers.values():
             genes.extend(v[:n_top])
-        return dotplot(self.adata, genes, self.groupby, **kwargs)
+        return dotplot(self.adata, genes, self.groupby, max_scale=max_scale, **kwargs)
 
