@@ -31,7 +31,8 @@ def marker(
     specific_score_fn: Optional[Callable[[pd.DataFrame], object]] = None,
     # Context defaults
     use_raw: bool = True,
-    k: int = 5,
+    k: Union[int, str] = 5,
+    isolated: str = "nearest",
     exclude: Optional[List[str]] = None,
     min_cells_per_group: int = 0,
     min_expr_cells_per_gene: int = 0,
@@ -63,6 +64,11 @@ def marker(
     Wraps :func:`sceleto.markers.graph.run_marker_graph` with the same parameters.
     When *batch_key* is provided, a Welch's t-test filter is automatically applied
     after FC filtering (genes that can be tested but fail p-value are dropped).
+
+    *isolated* controls groups that end up with no PAGA edge after top-*k*
+    trimming (e.g. a mast-cell island whose kNN neighbors are all internal):
+    "nearest" (default) connects them to the *k* nearest groups by embedding
+    centroid, "all" to every other group, "error" raises. Ignored for k="all".
     """
     from .graph import run_marker_graph
     return run_marker_graph(
@@ -76,6 +82,7 @@ def marker(
         specific_score_fn=specific_score_fn,
         use_raw=use_raw,
         k=k,
+        isolated=isolated,
         exclude=exclude,
         min_cells_per_group=min_cells_per_group,
         min_expr_cells_per_gene=min_expr_cells_per_gene,

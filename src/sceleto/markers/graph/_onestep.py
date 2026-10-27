@@ -132,6 +132,7 @@ def run_marker_graph(
     # Context defaults
     use_raw: bool = True,
     k: Union[int, Literal["all"]] = 5,
+    isolated: Literal["nearest", "all", "error"] = "nearest",
     exclude: Optional[List[str]] = None,
     min_cells_per_group: int = 0,
     min_expr_cells_per_gene: int = 0,
@@ -220,30 +221,35 @@ def run_marker_graph(
     suggested_thres_fc = None
 
     if isinstance(active_thres, str) and active_thres == "auto":
+        import warnings
         from ._threshold import sweep_fc_threshold, suggest_fc_threshold
-        sweep_df = sweep_fc_threshold(
-            adata, groupby,
-            edge_metric=edge_metric,
-            use_raw=use_raw,
-            # Context kwargs
-            k=k, exclude=exclude,
-            min_cells_per_group=min_cells_per_group,
-            min_expr_cells_per_gene=min_expr_cells_per_gene,
-            # Expression filter kwargs — must match the main pipeline so the
-            # suggested threshold is computed on the same edge population.
-            eps=eps,
-            min_mean_any=min_mean_any,
-            min_mean_high=min_mean_high,
-            min_frac_high=min_frac_high,
-            max_mean_low=max_mean_low,
-            min_nexpr_any=min_nexpr_any,
-            # Batch t-test gate — must match the downstream filter so the
-            # suggested threshold guarantees coverage among t-test survivors.
-            batch_key=batch_key,
-            batch_min_cells=batch_min_cells,
-            batch_ttest_alpha=batch_ttest_alpha,
-            batch_ttest_min_batches=batch_ttest_min_batches,
-        )
+        # The isolated-group warning is raised again by the main build_context
+        # below; silence the sweep's copy so it is reported once.
+        with warnings.catch_warnings():
+            warnings.filterwarnings("ignore", message=r"Groups .* have no PAGA edge")
+            sweep_df = sweep_fc_threshold(
+                adata, groupby,
+                edge_metric=edge_metric,
+                use_raw=use_raw,
+                # Context kwargs
+                k=k, isolated=isolated, exclude=exclude,
+                min_cells_per_group=min_cells_per_group,
+                min_expr_cells_per_gene=min_expr_cells_per_gene,
+                # Expression filter kwargs — must match the main pipeline so the
+                # suggested threshold is computed on the same edge population.
+                eps=eps,
+                min_mean_any=min_mean_any,
+                min_mean_high=min_mean_high,
+                min_frac_high=min_frac_high,
+                max_mean_low=max_mean_low,
+                min_nexpr_any=min_nexpr_any,
+                # Batch t-test gate — must match the downstream filter so the
+                # suggested threshold guarantees coverage among t-test survivors.
+                batch_key=batch_key,
+                batch_min_cells=batch_min_cells,
+                batch_ttest_alpha=batch_ttest_alpha,
+                batch_ttest_min_batches=batch_ttest_min_batches,
+            )
         suggested_thres_fc = suggest_fc_threshold(sweep_df)
         active_thres = suggested_thres_fc
         print(f"  Auto thres_{edge_metric}: {active_thres:.2f}")
@@ -288,6 +294,7 @@ def run_marker_graph(
         min_cells_per_group=min_cells_per_group,
         min_expr_cells_per_gene=min_expr_cells_per_gene,
         k=k,
+        isolated=isolated,
     )
 
     edge_gene_df = compute_fc_delta(
@@ -378,6 +385,27 @@ def run_marker_graph(
     _marker_log = {str(g): [] for g in ctx.groups}
     for g, sdf in specific_ranking_df.groupby("group", sort=False):
         _marker_log[str(g)] = sdf["gene"].astype(str).tolist()
+
+    # Safety net: a group with no edge has max_fc == 0 for every gene, so its
+    # ranking is just gene-name order. Never return that as a marker list.
+    deg = {str(g): 0 for g in ctx.groups}
+    for a, b in ctx.undirected_edges or []:
+        deg[str(a)] += 1
+        deg[str(b)] += 1
+    no_edge = [g for g, d in deg.items() if d == 0]
+    if no_edge:
+        import warnings
+        warnings.warn(
+            f"Groups {no_edge} have no edge in the cluster graph; their marker "
+            "lists are left empty (scores would all be 0).",
+            UserWarning,
+            stacklevel=2,
+        )
+        for g in no_edge:
+            _marker_log[g] = []
+        specific_ranking_df.loc[
+            specific_ranking_df["group"].astype(str).isin(no_edge), specific_score_col
+        ] = float("nan")
 
     return MarkerGraphRun(
         ctx=ctx,

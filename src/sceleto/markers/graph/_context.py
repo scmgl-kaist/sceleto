@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import warnings
 from dataclasses import dataclass, replace
 from typing import Dict, List, Literal, Optional, Tuple, Union
 
@@ -38,6 +39,11 @@ class MarkerContext:
     # Graph-related caches (phase 1: only undirected PAGA edges)
     undirected_edges: Optional[List[Tuple[str, str]]] = None
     pos_df: Optional[pd.DataFrame] = None
+
+    # Groups that had no PAGA edge after top-k trimming, and the fallback edges
+    # that were added for them (empty when no fallback was needed).
+    isolated_groups: Tuple[str, ...] = ()
+    fallback_edges: Tuple[Tuple[str, str], ...] = ()
 
     # Source AnnData (stored for downstream convenience, e.g. .plot())
     adata: Optional[object] = None
@@ -109,6 +115,7 @@ def build_context(
     min_expr_cells_per_gene: int = 0,
     dtype=np.float32,
     k: Union[int, Literal["all"]] = 5,
+    isolated: Literal["nearest", "all", "error"] = "nearest",
 ) -> MarkerContext:
     """Build MarkerContext with expression stats + cluster-pair graph.
 
@@ -119,6 +126,18 @@ def build_context(
         - int: keep top-k PAGA edges per node (requires PAGA in adata.uns).
         - "all": complete graph of all C(n, 2) pairs; cluster positions from
           UMAP centroids (requires adata.obsm['X_umap']).
+    isolated
+        What to do with a group that has no PAGA edge at all after top-k
+        trimming (its kNN neighbors all lie inside the group, so PAGA
+        connectivity to every other group is 0). Without an edge such a group
+        gets no FC/delta and every gene scores 0. Only used when `k` is int.
+        - "nearest": connect it to its `k` nearest groups by centroid distance
+          in the embedding neighbors were built on (``use_rep``, else X_pca,
+          else X_umap).
+        - "all": connect it to every other group.
+        - "error": raise.
+        A warning lists the affected groups; see ``ctx.isolated_groups`` and
+        ``ctx.fallback_edges``.
     """
     # context with expression values
     ctx = _build_expression_context(
@@ -143,6 +162,19 @@ def build_context(
             adata,
             groups=ctx.groups,  # enforce exact group order
             k=k,
+        )
+        undirected_edges, isolated_groups, fallback_edges = _connect_isolated_groups(
+            adata,
+            groupby=groupby,
+            groups=ctx.groups,
+            undirected_edges=undirected_edges,
+            k=k,
+            isolated=isolated,
+        )
+        ctx = replace(
+            ctx,
+            isolated_groups=tuple(isolated_groups),
+            fallback_edges=tuple(fallback_edges),
         )
     else:
         raise ValueError(f"k must be int or 'all', got {k!r}")
@@ -316,3 +348,100 @@ def _extract_paga_undirected_edges(
     })
 
     return undirected_edges, pos_df
+
+
+def _group_centroids(
+    adata,
+    groupby: str,
+    groups: List[str],
+) -> Tuple[np.ndarray, str]:
+    """Per-group centroids in the embedding neighbors were built on.
+
+    Preference: ``adata.uns['neighbors']['params']['use_rep']`` -> X_pca -> X_umap.
+    Returns (centroids (C, d), rep_name).
+    """
+    obsm = getattr(adata, "obsm", {})
+    candidates: List[str] = []
+    use_rep = adata.uns.get("neighbors", {}).get("params", {}).get("use_rep", None)
+    if use_rep:
+        candidates.append(str(use_rep))
+    candidates += ["X_pca", "X_umap"]
+
+    rep = next((r for r in candidates if r in obsm), None)
+    if rep is None:
+        raise ValueError(
+            "Cannot compute cluster centroids for isolated-group fallback: none of "
+            f"{candidates} found in adata.obsm. Set isolated='error' or k='all'."
+        )
+
+    emb = np.asarray(obsm[rep])
+    obs_groups = adata.obs[groupby].astype(str).to_numpy()
+    cent = np.vstack([emb[obs_groups == g].mean(axis=0) for g in groups])
+    return cent, rep
+
+
+def _connect_isolated_groups(
+    adata,
+    *,
+    groupby: str,
+    groups: List[str],
+    undirected_edges: List[Tuple[str, str]],
+    k: int,
+    isolated: Literal["nearest", "all", "error"],
+) -> Tuple[List[Tuple[str, str]], List[str], List[Tuple[str, str]]]:
+    """Add fallback edges for groups left with degree 0 after PAGA top-k trimming.
+
+    A group whose kNN neighbors all fall inside itself has PAGA connectivity 0
+    to every other group. With no edge, FC/delta are never computed for it and
+    every gene ties at score 0, so the ranking silently degrades to the
+    alphabetical order of gene names. Here such groups get explicit edges
+    instead (see `isolated` in :func:`build_context`).
+
+    Returns (edges, isolated_groups, fallback_edges).
+    """
+    if isolated not in ("nearest", "all", "error"):
+        raise ValueError(f"isolated must be 'nearest', 'all' or 'error', got {isolated!r}")
+
+    degree = {g: 0 for g in groups}
+    for a, b in undirected_edges:
+        degree[a] += 1
+        degree[b] += 1
+    iso = [g for g in groups if degree[g] == 0]
+    if not iso or len(groups) < 2:
+        return undirected_edges, [], []
+
+    if isolated == "error":
+        raise ValueError(
+            f"Groups {iso} have no PAGA edge after top-{k} trimming (PAGA connectivity "
+            "to every other group is 0), so no marker can be scored for them. "
+            "Use isolated='nearest'/'all', or k='all'."
+        )
+
+    fallback: set = set()
+    if isolated == "all":
+        for g in iso:
+            for h in groups:
+                if h != g:
+                    fallback.add(tuple(sorted((g, h))))
+        how = "every other group"
+    else:
+        cent, rep = _group_centroids(adata, groupby, groups)
+        gidx = {g: i for i, g in enumerate(groups)}
+        n_nb = min(k, len(groups) - 1)
+        for g in iso:
+            d = np.linalg.norm(cent - cent[gidx[g]], axis=1)
+            d[gidx[g]] = np.inf
+            for j in np.argsort(d)[:n_nb]:
+                fallback.add(tuple(sorted((g, groups[j]))))
+        how = f"the {n_nb} nearest group(s) by {rep} centroid distance"
+
+    fallback_edges = sorted(fallback - set(undirected_edges))
+    warnings.warn(
+        f"Groups {iso} have no PAGA edge after top-{k} trimming; connected each to "
+        f"{how} (isolated='{isolated}', {len(fallback_edges)} edge(s) added). "
+        "Inspect ctx.fallback_edges; set isolated='error' to disallow.",
+        UserWarning,
+        stacklevel=3,
+    )
+    edges = sorted(set(undirected_edges) | set(fallback_edges))
+    return edges, iso, fallback_edges
