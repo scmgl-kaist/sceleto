@@ -5,15 +5,10 @@ other cluster. After top-k trimming it has no edge, so no FC/delta is computed
 for it and every gene ties at score 0: the ranking silently became the
 alphabetical order of gene names. ``build_context(isolated=...)`` now adds
 fallback edges for such clusters.
-
-Real-data case: ``~/temp.h5ad`` (pseudobulk, 16 leiden clusters). Cluster 13 is
-Mast/Basophil (KIT/HDC/MS4A2), 12 is pDC (LILRA4/CLEC4C/TLR9); both are PAGA
-islands. Skipped when the file is absent.
 """
 
 from __future__ import annotations
 
-import os
 import warnings
 
 import numpy as np
@@ -26,16 +21,6 @@ matplotlib.use("Agg")
 
 import sceleto as scl
 from sceleto.markers.graph._context import build_context, _connect_isolated_groups
-
-
-REAL = "/home/smcheong/temp.h5ad"
-needs_real = pytest.mark.skipif(not os.path.exists(REAL), reason="temp.h5ad not present")
-
-
-@pytest.fixture(scope="module")
-def real():
-    import anndata as ad
-    return ad.read_h5ad(REAL)
 
 
 # ----------------------------------------------------------------------------
@@ -113,40 +98,90 @@ def test_nearest_uses_use_rep_then_falls_back():
 
 
 # ----------------------------------------------------------------------------
-# Real data: PAGA islands 12 (pDC) and 13 (Mast) in temp.h5ad
+# End-to-end: a PAGA island with planted markers
 # ----------------------------------------------------------------------------
 
-@needs_real
-def test_real_islands_are_detected(real):
-    with pytest.warns(UserWarning, match=r"Groups \['12', '13'\]"):
-        ctx = build_context(real, "leiden", k=5)
-    assert ctx.isolated_groups == ("12", "13")
-    deg = {g: 0 for g in ctx.groups}
-    for u, v in ctx.undirected_edges:
-        deg[u] += 1
-        deg[v] += 1
-    assert deg["12"] == 5 and deg["13"] == 5
-    assert all(e in ctx.undirected_edges for e in ctx.fallback_edges)
+N_GROUPS = 6           # "5" is the island
+ISLAND = "5"
+CELLS_PER_GROUP = 40
+N_FILLER = 120
+# Island markers are named Z* so that the old failure (alphabetical ranking)
+# would put them last, not first.
+ISLAND_MARKERS = [f"ZISL{i}" for i in range(5)]
+
+
+def _island_adata(seed=0):
+    """log1p-like data; groups 0-4 form a PAGA chain, group 5 has no PAGA edge."""
+    import anndata as ad
+    from scipy import sparse
+
+    rng = np.random.default_rng(seed)
+    groups = [str(i) for i in range(N_GROUPS)]
+    lab = np.repeat(groups, CELLS_PER_GROUP)
+    n = lab.size
+
+    own = {g: [f"M{g}_{j}" for j in range(5)] for g in groups if g != ISLAND}
+    own[ISLAND] = ISLAND_MARKERS
+    genes = [f"A{i:03d}" for i in range(N_FILLER)] + [x for g in groups for x in own[g]]
+    col = {x: i for i, x in enumerate(genes)}
+
+    # filler: sparse low background everywhere
+    X = rng.random((n, len(genes))) * 0.3
+    X[rng.random(X.shape) < 0.7] = 0.0
+    for g in groups:
+        rows = np.where(lab == g)[0]
+        for x in own[g]:
+            on = rows[rng.random(rows.size) < 0.9]
+            X[on, col[x]] = 2.0 + rng.random(on.size)
+
+    obs = pd.DataFrame({"leiden": pd.Categorical(lab, categories=groups)},
+                       index=[f"c{i}" for i in range(n)])
+    a = ad.AnnData(X=sparse.csr_matrix(X.astype(np.float32)), obs=obs,
+                   var=pd.DataFrame(index=genes))
+
+    # embedding: chain 0..4 along x, island far away
+    cent = {g: np.array([float(i), 0.0, 0.0]) for i, g in enumerate(groups)}
+    cent[ISLAND] = np.array([2.0, 10.0, 0.0])
+    emb = np.vstack([cent[g] for g in lab]) + rng.normal(0, 0.1, (n, 3))
+    a.obsm["X_pca"] = emb
+    a.obsm["X_umap"] = emb[:, :2]
+    a.uns["neighbors"] = {"params": {"use_rep": "X_pca"}}
+
+    con = np.zeros((N_GROUPS, N_GROUPS))
+    for i in range(N_GROUPS - 2):  # 0-1-2-3-4 chain
+        con[i, i + 1] = con[i + 1, i] = 0.5
+    a.uns["paga"] = {
+        "connectivities": sparse.csr_matrix(con),
+        "pos": np.vstack([cent[g][:2] for g in groups]),
+        "groups": "leiden",
+    }
+    return a
+
+
+def test_island_detected_and_connected():
+    a = _island_adata()
+    with pytest.warns(UserWarning, match=r"Groups \['5'\]"):
+        ctx = build_context(a, "leiden", k=2)
+    assert ctx.isolated_groups == (ISLAND,)
+    # nearest by centroid: island sits above group 2, then 1/3 tie -> any 2 of {1,2,3}
+    nb = {u if v == ISLAND else v for u, v in ctx.fallback_edges}
+    assert len(nb) == 2 and "2" in nb and nb <= {"1", "2", "3"}
 
     with pytest.raises(ValueError, match="no PAGA edge"):
-        build_context(real, "leiden", k=5, isolated="error")
+        build_context(a, "leiden", k=2, isolated="error")
 
 
-@needs_real
 @pytest.mark.parametrize("isolated", ["nearest", "all"])
-def test_real_islands_get_biological_markers(real, isolated):
-    with pytest.warns(UserWarning):
-        r = scl.markers.marker(real, "leiden", isolated=isolated)
+def test_island_gets_planted_markers(isolated):
+    a = _island_adata()
+    with pytest.warns(UserWarning, match="no PAGA edge"):
+        r = scl.markers.marker(a, "leiden", k=2, isolated=isolated)
 
-    mast = r.markers["13"][:15]
-    pdc = r.markers["12"][:15]
-    assert len({"KIT", "HDC", "MS4A2", "GATA2", "CPA3", "TPSAB1"} & set(mast)) >= 3, mast
-    assert len({"LILRA4", "CLEC4C", "TLR9", "IL3RA", "GZMB", "TCL1A"} & set(pdc)) >= 2, pdc
+    # auto thres_fc may drop one or two planted genes; whatever is returned on
+    # top must be planted markers, not alphabetical filler (A***).
+    top = r.markers[ISLAND][:3]
+    assert len(top) == 3 and set(top) <= set(ISLAND_MARKERS), r.markers[ISLAND]
 
-    # not alphabetical any more
-    assert mast != sorted(mast)
-    assert pdc != sorted(pdc)
-
-    sub = r.specific_ranking_df[r.specific_ranking_df["group"].astype(str) == "13"]
+    sub = r.specific_ranking_df[r.specific_ranking_df["group"].astype(str) == ISLAND]
     assert (sub["max_fc"] > 0).any()
     assert sub["specific_weight"].max() > 0
